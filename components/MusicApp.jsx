@@ -1,22 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  Heart,
-  Search,
-  Share2,
-  Trash2,
-  Music2,
-  LibraryBig,
-  Shuffle,
-  Repeat2,
-  Upload,
-  SlidersHorizontal,
-  SkipBack,
-  SkipForward,
-  Play,
-  Pause,
-} from "lucide-react";
+import { Heart, Search, Trash2, Music2, LibraryBig, Upload, SlidersHorizontal } from "lucide-react";
 import MiniPlayer from "./MiniPlayer";
 
 const gradientSets = [
@@ -65,7 +50,7 @@ async function extractVideoThumbnail(file) {
         const dataUrl = c.toDataURL("image/jpeg", 0.9);
         cleanup();
         resolve(dataUrl);
-      } catch (e) {
+      } catch {
         cleanup();
         resolve(null);
       }
@@ -86,7 +71,6 @@ export default function MusicApp() {
   const [favorites, setFavorites] = useState([]);
   const [deleted, setDeleted] = useState([]);
   const [recent, setRecent] = useState([]);
-  const [queueMode, setQueueMode] = useState("upload");
   const [eqEnabled, setEqEnabled] = useState(true);
   const [eq, setEq] = useState({ bass: 0, mid: 0, treble: 0 });
 
@@ -102,12 +86,10 @@ export default function MusicApp() {
     const bass = ctx.createBiquadFilter();
     bass.type = "lowshelf";
     bass.frequency.value = 110;
-
     const mid = ctx.createBiquadFilter();
     mid.type = "peaking";
     mid.frequency.value = 1000;
     mid.Q.value = 0.8;
-
     const treble = ctx.createBiquadFilter();
     treble.type = "highshelf";
     treble.frequency.value = 9000;
@@ -129,19 +111,7 @@ export default function MusicApp() {
     nodesRef.current.treble.gain.value = eq.treble * g;
   };
 
-  const visible = useMemo(() => {
-    let list = songs.filter((s) => `${s.title} ${s.artist} ${s.album}`.toLowerCase().includes(query.toLowerCase()));
-    if (queueMode === "alpha") list = [...list].sort((a, b) => a.title.localeCompare(b.title));
-    if (queueMode === "random") list = [...list].sort(() => Math.random() - 0.5);
-    return list;
-  }, [songs, query, queueMode]);
-
   const track = songs[current] || null;
-
-  const setTrackById = (id) => {
-    const idx = songs.findIndex((s) => s.id === id);
-    if (idx >= 0) setCurrent(idx);
-  };
 
   const playCurrent = async () => {
     if (!track) return;
@@ -155,26 +125,13 @@ export default function MusicApp() {
       }
       setIsPlaying(true);
       setRecent((r) => [track.id, ...r.filter((x) => x !== track.id)].slice(0, 12));
-    } catch (e) {}
+    } catch {}
   };
 
   const pauseCurrent = () => {
     if (!track) return;
     if (track.kind === "video") videoRef.current.pause();
     else audioRef.current.pause();
-    setIsPlaying(false);
-  };
-
-  const next = () => {
-    if (!songs.length) return;
-    const nextIndex = queueMode === "alpha" ? (current + 1) % songs.length : (current + 1) % songs.length;
-    setCurrent(nextIndex);
-    setIsPlaying(false);
-  };
-
-  const prev = () => {
-    if (!songs.length) return;
-    setCurrent((c) => (c - 1 + songs.length) % songs.length);
     setIsPlaying(false);
   };
 
@@ -191,6 +148,11 @@ export default function MusicApp() {
     setRecent((r) => r.filter((x) => x !== id));
     setCurrent(Math.max(0, Math.min(idx, list.length - 1)));
     setIsPlaying(false);
+  };
+
+  const setTrackById = (id) => {
+    const idx = songs.findIndex((s) => s.id === id);
+    if (idx >= 0) setCurrent(idx);
   };
 
   const importFiles = async (e) => {
@@ -289,32 +251,28 @@ export default function MusicApp() {
             />
           </div>
 
-          <div className="mb-4 flex flex-wrap gap-2">
-            <button onClick={() => setQueueMode("upload")} className={`rounded-full px-4 py-2 text-sm ${queueMode === "upload" ? "bg-pink-500 text-black" : "bg-zinc-800"}`}>Personalizzato</button>
-            <button onClick={() => setQueueMode("alpha")} className={`rounded-full px-4 py-2 text-sm ${queueMode === "alpha" ? "bg-pink-500 text-black" : "bg-zinc-800"}`}>Alfabetico</button>
-            <button onClick={() => setQueueMode("random")} className={`rounded-full px-4 py-2 text-sm ${queueMode === "random" ? "bg-pink-500 text-black" : "bg-zinc-800"}`}>Casuale</button>
-          </div>
-
           <div className="space-y-3">
-            {visible.map((s) => (
-              <div
-                key={s.id}
-                className={`rounded-2xl border ${track?.id === s.id ? "border-pink-500 bg-zinc-900" : "border-zinc-800 bg-panel2"} p-4 flex items-center gap-3`}
-              >
-                <button onClick={() => setTrackById(s.id)} className="flex-1 min-h-[52px] text-left">
-                  <div className="font-medium">{s.title}</div>
-                  <div className="text-sm text-zinc-400">{s.artist}</div>
-                </button>
+            {songs
+              .filter((s) => `${s.title} ${s.artist} ${s.album}`.toLowerCase().includes(query.toLowerCase()))
+              .map((s) => (
+                <div
+                  key={s.id}
+                  className={`rounded-2xl border ${track?.id === s.id ? "border-pink-500 bg-zinc-900" : "border-zinc-800 bg-panel2"} p-4 flex items-center gap-3`}
+                >
+                  <button onClick={() => setTrackById(s.id)} className="flex-1 min-h-[52px] text-left">
+                    <div className="font-medium">{s.title}</div>
+                    <div className="text-sm text-zinc-400">{s.artist}</div>
+                  </button>
 
-                <button onClick={() => toggleFav(s.id)} className="grid h-11 w-11 place-items-center rounded-full bg-zinc-800">
-                  <Heart size={18} className={favorites.includes(s.id) ? "fill-pink-500 text-pink-500" : ""} />
-                </button>
+                  <button onClick={() => toggleFav(s.id)} className="grid h-11 w-11 place-items-center rounded-full bg-zinc-800">
+                    <Heart size={18} className={favorites.includes(s.id) ? "fill-pink-500 text-pink-500" : ""} />
+                  </button>
 
-                <button onClick={() => removeSong(s.id)} className="grid h-11 w-11 place-items-center rounded-full bg-zinc-800 text-zinc-200">
-                  <Trash2 size={18} />
-                </button>
-              </div>
-            ))}
+                  <button onClick={() => removeSong(s.id)} className="grid h-11 w-11 place-items-center rounded-full bg-zinc-800 text-zinc-200">
+                    <Trash2 size={18} />
+                  </button>
+                </div>
+              ))}
           </div>
 
           <div className="mt-6 grid gap-3 md:grid-cols-3">
@@ -361,6 +319,16 @@ export default function MusicApp() {
         isPlaying={isPlaying}
         onPlay={playCurrent}
         onPause={pauseCurrent}
+        onPrev={() => {
+          if (!songs.length) return;
+          setCurrent((c) => (c - 1 + songs.length) % songs.length);
+          setIsPlaying(false);
+        }}
+        onNext={() => {
+          if (!songs.length) return;
+          setCurrent((c) => (c + 1) % songs.length);
+          setIsPlaying(false);
+        }}
         onToggleFav={() => track && toggleFav(track.id)}
         isFav={track ? favorites.includes(track.id) : false}
         videoRef={videoRef}
