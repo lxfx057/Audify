@@ -1,7 +1,22 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Play, Pause, ChevronUp, ChevronDown, Heart, SkipBack, SkipForward } from "lucide-react";
+import {
+  Play,
+  Pause,
+  ChevronUp,
+  ChevronDown,
+  Heart,
+  SkipBack,
+  SkipForward,
+} from "lucide-react";
+
+function formatTime(sec) {
+  if (!Number.isFinite(sec) || sec < 0) return "0:00";
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60).toString().padStart(2, "0");
+  return `${m}:${s}`;
+}
 
 export default function MiniPlayer({
   track,
@@ -17,6 +32,9 @@ export default function MiniPlayer({
   setEqEnabled,
   eq,
   setEq,
+  duration,
+  currentTime,
+  seekTo,
 }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -29,7 +47,7 @@ export default function MiniPlayer({
   return (
     <div
       className={`fixed left-3 right-3 bottom-3 z-50 overflow-hidden rounded-3xl bg-panel shadow-glow transition-all duration-300 ${
-        expanded ? "h-[76vh]" : "h-18"
+        expanded ? "h-[82vh]" : "h-18"
       }`}
     >
       <button
@@ -77,7 +95,7 @@ export default function MiniPlayer({
       </button>
 
       {expanded ? (
-        <div className="flex h-[calc(76vh-72px)] flex-col gap-4 px-4 pb-4">
+        <div className="flex h-[calc(82vh-72px)] flex-col gap-4 px-4 pb-4">
           <div className="relative flex-1 overflow-hidden rounded-3xl bg-black">
             {isVideo ? (
               <video
@@ -89,7 +107,10 @@ export default function MiniPlayer({
                 preload="metadata"
               />
             ) : (
-              <div className="flex h-full w-full items-center justify-center" style={{ background: track?.gradient }}>
+              <div
+                className="flex h-full w-full items-center justify-center"
+                style={{ background: track?.gradient }}
+              >
                 <div className="text-center">
                   <div className="text-xs uppercase tracking-[0.35em] text-white/70">MP3</div>
                   <div className="mt-3 text-2xl font-semibold">{track?.title}</div>
@@ -103,11 +124,28 @@ export default function MiniPlayer({
             <div className="text-sm text-zinc-400">{track?.artist || ""}</div>
           </div>
 
+          <div className="flex items-center gap-3">
+            <div className="text-xs text-zinc-400 w-12">{formatTime(currentTime)}</div>
+            <input
+              type="range"
+              min="0"
+              max={Number.isFinite(duration) ? duration : 0}
+              value={Math.min(currentTime, Number.isFinite(duration) ? duration : 0)}
+              onChange={(e) => seekTo(Number(e.target.value))}
+              className="w-full"
+            />
+            <div className="text-xs text-zinc-400 w-12 text-right">{formatTime(duration)}</div>
+          </div>
+
           <div className="flex items-center justify-center gap-3">
             <button type="button" onClick={onPrev} className="grid h-12 w-12 place-items-center rounded-full bg-zinc-800">
               <SkipBack size={18} />
             </button>
-            <button type="button" onClick={isPlaying ? onPause : onPlay} className="grid h-14 w-14 place-items-center rounded-full bg-pink-500 text-black">
+            <button
+              type="button"
+              onClick={isPlaying ? onPause : onPlay}
+              className="grid h-14 w-14 place-items-center rounded-full bg-pink-500 text-black"
+            >
               {isPlaying ? <Pause size={20} /> : <Play size={20} />}
             </button>
             <button type="button" onClick={onNext} className="grid h-12 w-12 place-items-center rounded-full bg-zinc-800">
