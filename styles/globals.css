@@ -16,11 +16,25 @@ body {
 }
 
 button,
-input {
-  font: inherit;
+input,
+a {
+  -webkit-tap-highlight-color: transparent;
 }
 
-img {
+button {
+  touch-action: manipulation;
+}
+
+img,
+video {
   display: block;
   max-width: 100%;
+}
+
+@media (any-pointer: coarse) {
+  button,
+  a,
+  input {
+    min-height: 44px;
+  }
 }
