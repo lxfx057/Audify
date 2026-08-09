@@ -35,44 +35,45 @@ const randomGradient = () => {
 };
 
 function isVideoFile(file) {
-  return (
-    file.type.startsWith("video/") ||
-    file.name.toLowerCase().endsWith(".mp4") ||
-    file.name.toLowerCase().endsWith(".m4v")
-  );
+  const name = file.name.toLowerCase();
+  return file.type.startsWith("video/") || name.endsWith(".mp4") || name.endsWith(".m4v");
 }
 
 async function extractVideoThumbnail(file) {
   return new Promise((resolve) => {
     const url = URL.createObjectURL(file);
     const v = document.createElement("video");
-    v.preload = "metadata";
     v.src = url;
+    v.preload = "metadata";
     v.muted = true;
     v.playsInline = true;
+    v.crossOrigin = "anonymous";
+
+    const cleanup = () => URL.revokeObjectURL(url);
 
     v.addEventListener("loadeddata", () => {
-      v.currentTime = Math.min(0.5, Math.max(0, v.duration / 10));
+      const t = Math.min(0.5, Math.max(0, (v.duration || 1) / 10));
+      v.currentTime = t;
     });
 
     v.addEventListener("seeked", () => {
       try {
         const c = document.createElement("canvas");
-        c.width = v.videoWidth || 320;
-        c.height = v.videoHeight || 320;
+        c.width = v.videoWidth || 720;
+        c.height = v.videoHeight || 720;
         const ctx = c.getContext("2d");
         ctx.drawImage(v, 0, 0, c.width, c.height);
-        const dataUrl = c.toDataURL("image/jpeg");
-        URL.revokeObjectURL(url);
+        const dataUrl = c.toDataURL("image/jpeg", 0.9);
+        cleanup();
         resolve(dataUrl);
       } catch (e) {
-        URL.revokeObjectURL(url);
+        cleanup();
         resolve(null);
       }
     });
 
     v.addEventListener("error", () => {
-      URL.revokeObjectURL(url);
+      cleanup();
       resolve(null);
     });
   });
@@ -134,32 +135,31 @@ export default function MusicApp() {
 
   const playCurrent = async () => {
     if (!track) return;
-    if (track.kind === "video") {
-      try {
+    try {
+      if (track.kind === "video") {
         await videoRef.current.play();
-      } catch (e) {}
-    } else {
-      ensureAudioGraph();
-      applyEq();
-      try {
+      } else {
+        ensureAudioGraph();
+        applyEq();
         await audioRef.current.play();
-      } catch (e) {}
-    }
-    setIsPlaying(true);
+      }
+      setIsPlaying(true);
+    } catch (e) {}
   };
 
   const pauseCurrent = () => {
-    if (track?.kind === "video") videoRef.current.pause();
+    if (!track) return;
+    if (track.kind === "video") videoRef.current.pause();
     else audioRef.current.pause();
     setIsPlaying(false);
   };
 
-  const toggle = () => (isPlaying ? pauseCurrent() : playCurrent());
   const next = () => {
     if (!songs.length) return;
     setCurrent((c) => (c + 1) % songs.length);
     setIsPlaying(false);
   };
+
   const prev = () => {
     if (!songs.length) return;
     setCurrent((c) => (c - 1 + songs.length) % songs.length);
@@ -181,31 +181,19 @@ export default function MusicApp() {
     const files = Array.from(e.target.files || []);
     const valid = files.filter((file) => {
       const name = file.name.toLowerCase();
-      const okMp3 =
-        file.type === "audio/mpeg" ||
-        file.type === "audio/mp3" ||
-        name.endsWith(".mp3");
-      const okMp4 =
-        file.type === "video/mp4" ||
-        file.type === "video/x-m4v" ||
-        name.endsWith(".mp4") ||
-        name.endsWith(".m4v");
+      const okMp3 = file.type === "audio/mpeg" || file.type === "audio/mp3" || name.endsWith(".mp3");
+      const okMp4 = file.type === "video/mp4" || file.type === "video/x-m4v" || name.endsWith(".mp4") || name.endsWith(".m4v");
       return okMp3 || okMp4;
     });
 
     const added = [];
     for (let i = 0; i < valid.length; i++) {
       const file = valid[i];
-      const id = Date.now() + i;
       const video = isVideoFile(file);
-      let thumb = null;
-
-      if (video) {
-        thumb = await extractVideoThumbnail(file);
-      }
+      const thumb = video ? await extractVideoThumbnail(file) : null;
 
       added.push({
-        id,
+        id: Date.now() + i,
         title: file.name.replace(/\.[^.]+$/, ""),
         artist: video ? "Video" : "Local",
         album: video ? "Imported video" : "Imported audio",
@@ -225,12 +213,8 @@ export default function MusicApp() {
 
   useEffect(() => {
     if (!track) return;
-    if (track.kind === "audio" && audioRef.current) {
-      audioRef.current.src = track.src;
-    }
-    if (track.kind === "video" && videoRef.current) {
-      videoRef.current.src = track.src;
-    }
+    if (track.kind === "audio" && audioRef.current) audioRef.current.src = track.src;
+    if (track.kind === "video" && videoRef.current) videoRef.current.src = track.src;
   }, [track]);
 
   useEffect(() => {
@@ -263,7 +247,7 @@ export default function MusicApp() {
             ))}
           </nav>
 
-          <label className="mt-6 flex cursor-pointer items-center gap-2 rounded-2xl border border-zinc-800 px-4 py-3 text-sm">
+          <label className="mt-6 flex min-h-[52px] cursor-pointer items-center justify-center gap-2 rounded-2xl border border-zinc-800 px-4 py-3 text-sm active:scale-[0.99]">
             <Upload size={16} />
             Importa file
             <input
@@ -274,15 +258,11 @@ export default function MusicApp() {
               onChange={importFiles}
             />
           </label>
-
-          <div className="mt-3 text-xs text-zinc-500">
-            Accetta solo MP3 e MP4.
-          </div>
         </aside>
 
         <main className="rounded-3xl bg-panel p-4 md:p-6 shadow-glow">
           <div className="flex items-center gap-3 rounded-2xl bg-panel2 px-4 py-3 mb-5">
-            <Search size={16} className="text-zinc-400" />
+            <Search size={16} className="text-zinc-400 shrink-0" />
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -295,16 +275,13 @@ export default function MusicApp() {
             <section
               className="rounded-3xl border border-zinc-800 p-5"
               style={{
-                background:
-                  track?.kind === "video"
-                    ? "#000"
-                    : track?.gradient || "radial-gradient(circle at top left, #111827, #000)",
+                background: track?.kind === "video" ? "#000" : track?.gradient || "radial-gradient(circle at top left, #111827, #000)",
               }}
             >
               {track?.kind === "video" ? (
                 <video
                   ref={videoRef}
-                  src={track?.src}
+                  src={track.src}
                   className="aspect-square w-full rounded-3xl object-cover bg-black"
                   controls
                   playsInline
@@ -321,29 +298,20 @@ export default function MusicApp() {
                 </div>
               )}
 
-              {track?.kind === "audio" && (
-                <audio ref={audioRef} src={track?.src} onEnded={next} className="hidden" />
-              )}
+              {track?.kind === "audio" && <audio ref={audioRef} src={track.src} onEnded={next} className="hidden" />}
 
               <div className="mt-6 flex items-center justify-center gap-4 text-zinc-200">
-                <button onClick={prev}><SkipBack /></button>
-                <button onClick={toggle} className="rounded-full bg-pink-500 p-4 text-black shadow-glow">
+                <button onClick={prev} className="grid h-12 w-12 place-items-center rounded-full bg-zinc-800"><SkipBack /></button>
+                <button onClick={isPlaying ? pauseCurrent : playCurrent} className="grid h-14 w-14 place-items-center rounded-full bg-pink-500 text-black shadow-glow">
                   {isPlaying ? <Pause /> : <Play />}
                 </button>
-                <button onClick={next}><SkipForward /></button>
+                <button onClick={next} className="grid h-12 w-12 place-items-center rounded-full bg-zinc-800"><SkipForward /></button>
               </div>
 
-              {track?.kind === "audio" && (
-                <div className="mt-4 flex items-center gap-3">
-                  <input type="range" min="0" max="100" className="w-full" />
-                  <span className="text-xs text-zinc-400">vol</span>
-                </div>
-              )}
-
               <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
-                <button onClick={() => setEq({ ...eq, bass: eq.bass === 0 ? 6 : 0 })} className="rounded-xl bg-zinc-800 py-2">Bass</button>
-                <button onClick={() => setEq({ ...eq, mid: eq.mid === 0 ? 5 : 0 })} className="rounded-xl bg-zinc-800 py-2">Mid</button>
-                <button onClick={() => setEq({ ...eq, treble: eq.treble === 0 ? 5 : 0 })} className="rounded-xl bg-zinc-800 py-2">Treble</button>
+                <button onClick={() => setEq({ ...eq, bass: eq.bass === 0 ? 6 : 0 })} className="min-h-[44px] rounded-xl bg-zinc-800 py-2">Bass</button>
+                <button onClick={() => setEq({ ...eq, mid: eq.mid === 0 ? 5 : 0 })} className="min-h-[44px] rounded-xl bg-zinc-800 py-2">Mid</button>
+                <button onClick={() => setEq({ ...eq, treble: eq.treble === 0 ? 5 : 0 })} className="min-h-[44px] rounded-xl bg-zinc-800 py-2">Treble</button>
               </div>
             </section>
 
@@ -351,30 +319,25 @@ export default function MusicApp() {
               {visible.map((s) => (
                 <div
                   key={s.id}
-                  className={`rounded-2xl border ${
-                    track?.id === s.id ? "border-pink-500 bg-zinc-900" : "border-zinc-800 bg-panel2"
-                  } p-4 flex items-center gap-3`}
+                  className={`rounded-2xl border ${track?.id === s.id ? "border-pink-500 bg-zinc-900" : "border-zinc-800 bg-panel2"} p-4 flex items-center gap-3`}
                 >
-                  <button
-                    onClick={() => setCurrent(songs.findIndex((x) => x.id === s.id))}
-                    className="flex-1 text-left"
-                  >
+                  <button onClick={() => setCurrent(songs.findIndex((x) => x.id === s.id))} className="flex-1 min-h-[52px] text-left">
                     <div className="font-medium">{s.title}</div>
                     <div className="text-sm text-zinc-400">{s.artist}</div>
                   </button>
 
-                  <button onClick={() => toggleFav(s.id)}>
+                  <button onClick={() => toggleFav(s.id)} className="grid h-11 w-11 place-items-center rounded-full bg-zinc-800">
                     <Heart size={18} className={favorites.includes(s.id) ? "fill-pink-500 text-pink-500" : ""} />
                   </button>
 
                   <a
                     href={`mailto:?subject=${encodeURIComponent(s.title)}&body=${encodeURIComponent("Ascolta: " + s.title)}`}
-                    className="text-zinc-400"
+                    className="grid h-11 w-11 place-items-center rounded-full bg-zinc-800 text-zinc-200"
                   >
                     <Share2 size={18} />
                   </a>
 
-                  <button onClick={() => removeSong(s.id)} className="text-zinc-400">
+                  <button onClick={() => removeSong(s.id)} className="grid h-11 w-11 place-items-center rounded-full bg-zinc-800 text-zinc-200">
                     <Trash2 size={18} />
                   </button>
                 </div>
@@ -391,9 +354,6 @@ export default function MusicApp() {
           <div className="rounded-2xl bg-panel2 p-4 space-y-3 text-sm">
             <div className="flex justify-between"><span>Shuffle</span><Shuffle size={16} /></div>
             <div className="flex justify-between"><span>Repeat</span><Repeat2 size={16} /></div>
-            <div className="flex justify-between"><span>Condividi via</span></div>
-            <a className="block text-pink-400" href={`mailto:?subject=${encodeURIComponent(track?.title || "Brano")}&body=${encodeURIComponent("Ascolta: " + (track?.title || "Brano"))}`}>Email</a>
-            <a className="block text-pink-400" href={`https://wa.me/?text=${encodeURIComponent("Ascolta: " + (track?.title || "Brano"))}`} target="_blank" rel="noreferrer">WhatsApp</a>
           </div>
 
           <div className="rounded-2xl bg-panel2 p-4 text-sm text-zinc-300">
