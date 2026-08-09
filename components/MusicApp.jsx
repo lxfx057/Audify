@@ -6,7 +6,6 @@ import {
   Search,
   Share2,
   Trash2,
-  Settings,
   Music2,
   LibraryBig,
   Shuffle,
@@ -85,6 +84,10 @@ export default function MusicApp() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [query, setQuery] = useState("");
   const [favorites, setFavorites] = useState([]);
+  const [deleted, setDeleted] = useState([]);
+  const [recent, setRecent] = useState([]);
+  const [queueMode, setQueueMode] = useState("upload");
+  const [eqEnabled, setEqEnabled] = useState(true);
   const [eq, setEq] = useState({ bass: 0, mid: 0, treble: 0 });
 
   const audioRef = useRef(null);
@@ -92,18 +95,10 @@ export default function MusicApp() {
   const ctxRef = useRef(null);
   const nodesRef = useRef(null);
 
-  const visible = useMemo(
-    () => songs.filter((s) => `${s.title} ${s.artist} ${s.album}`.toLowerCase().includes(query.toLowerCase())),
-    [songs, query]
-  );
-
-  const track = songs[current] || null;
-
   const ensureAudioGraph = () => {
     if (ctxRef.current || !audioRef.current) return;
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     const source = ctx.createMediaElementSource(audioRef.current);
-
     const bass = ctx.createBiquadFilter();
     bass.type = "lowshelf";
     bass.frequency.value = 110;
@@ -128,9 +123,24 @@ export default function MusicApp() {
 
   const applyEq = () => {
     if (!nodesRef.current) return;
-    nodesRef.current.bass.gain.value = eq.bass;
-    nodesRef.current.mid.gain.value = eq.mid;
-    nodesRef.current.treble.gain.value = eq.treble;
+    const g = eqEnabled ? 1 : 0;
+    nodesRef.current.bass.gain.value = eq.bass * g;
+    nodesRef.current.mid.gain.value = eq.mid * g;
+    nodesRef.current.treble.gain.value = eq.treble * g;
+  };
+
+  const visible = useMemo(() => {
+    let list = songs.filter((s) => `${s.title} ${s.artist} ${s.album}`.toLowerCase().includes(query.toLowerCase()));
+    if (queueMode === "alpha") list = [...list].sort((a, b) => a.title.localeCompare(b.title));
+    if (queueMode === "random") list = [...list].sort(() => Math.random() - 0.5);
+    return list;
+  }, [songs, query, queueMode]);
+
+  const track = songs[current] || null;
+
+  const setTrackById = (id) => {
+    const idx = songs.findIndex((s) => s.id === id);
+    if (idx >= 0) setCurrent(idx);
   };
 
   const playCurrent = async () => {
@@ -144,6 +154,7 @@ export default function MusicApp() {
         await audioRef.current.play();
       }
       setIsPlaying(true);
+      setRecent((r) => [track.id, ...r.filter((x) => x !== track.id)].slice(0, 12));
     } catch (e) {}
   };
 
@@ -156,7 +167,8 @@ export default function MusicApp() {
 
   const next = () => {
     if (!songs.length) return;
-    setCurrent((c) => (c + 1) % songs.length);
+    const nextIndex = queueMode === "alpha" ? (current + 1) % songs.length : (current + 1) % songs.length;
+    setCurrent(nextIndex);
     setIsPlaying(false);
   };
 
@@ -171,8 +183,12 @@ export default function MusicApp() {
 
   const removeSong = (id) => {
     const idx = songs.findIndex((s) => s.id === id);
+    const removed = songs.find((s) => s.id === id);
     const list = songs.filter((s) => s.id !== id);
     setSongs(list);
+    if (removed) setDeleted((d) => [removed.id, ...d.filter((x) => x !== removed.id)]);
+    setFavorites((f) => f.filter((x) => x !== id));
+    setRecent((r) => r.filter((x) => x !== id));
     setCurrent(Math.max(0, Math.min(idx, list.length - 1)));
     setIsPlaying(false);
   };
@@ -205,7 +221,7 @@ export default function MusicApp() {
     }
 
     if (added.length) {
-      setSongs((s) => [...added, ...s]);
+      setSongs((s) => [...s, ...added]);
       setCurrent(0);
       setIsPlaying(false);
     }
@@ -219,7 +235,11 @@ export default function MusicApp() {
 
   useEffect(() => {
     applyEq();
-  }, [eq]);
+  }, [eq, eqEnabled]);
+
+  const recentItems = songs.filter((s) => recent.includes(s.id));
+  const favItems = songs.filter((s) => favorites.includes(s.id));
+  const deletedItems = songs.filter((s) => deleted.includes(s.id));
 
   return (
     <div className="min-h-screen bg-bg text-white p-4 md:p-6 pb-28">
@@ -233,19 +253,17 @@ export default function MusicApp() {
             </div>
           </div>
 
-          <nav className="space-y-2 text-sm">
-            {[
-              ["Library", <LibraryBig size={16} key="l" />],
-              ["Favorites", <Heart size={16} key="h" />],
-              ["Albums", <Music2 size={16} key="m" />],
-              ["Settings", <Settings size={16} key="s" />],
-            ].map(([label, icon]) => (
-              <div key={label} className="rounded-2xl bg-panel2 px-4 py-3 flex items-center gap-3">
-                <span className="text-pink-500">{icon}</span>
-                {label}
-              </div>
-            ))}
-          </nav>
+          <div className="space-y-2 text-sm">
+            <div className="rounded-2xl bg-panel2 px-4 py-3 flex items-center gap-3">
+              <LibraryBig size={16} className="text-pink-500" /> Recenti
+            </div>
+            <div className="rounded-2xl bg-panel2 px-4 py-3 flex items-center gap-3">
+              <Heart size={16} className="text-pink-500" /> Preferiti
+            </div>
+            <div className="rounded-2xl bg-panel2 px-4 py-3 flex items-center gap-3">
+              <Trash2 size={16} className="text-pink-500" /> Eliminati
+            </div>
+          </div>
 
           <label className="mt-6 flex min-h-[52px] cursor-pointer items-center justify-center gap-2 rounded-2xl border border-zinc-800 px-4 py-3 text-sm active:scale-[0.99]">
             <Upload size={16} />
@@ -271,93 +289,69 @@ export default function MusicApp() {
             />
           </div>
 
-          <div className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr]">
-            <section
-              className="rounded-3xl border border-zinc-800 p-5"
-              style={{
-                background: track?.kind === "video" ? "#000" : track?.gradient || "radial-gradient(circle at top left, #111827, #000)",
-              }}
-            >
-              {track?.kind === "video" ? (
-                <video
-                  ref={videoRef}
-                  src={track.src}
-                  className="aspect-square w-full rounded-3xl object-cover bg-black"
-                  controls
-                  playsInline
-                  preload="metadata"
-                  onEnded={next}
-                />
-              ) : (
-                <div className="aspect-square w-full rounded-3xl bg-black/30 flex items-center justify-center text-center p-4">
-                  <div>
-                    <div className="text-xs uppercase tracking-[0.35em] text-zinc-300 mb-3">MP3</div>
-                    <div className="text-2xl font-semibold">{track?.title || "Nessun brano"}</div>
-                    <div className="text-pink-300 mt-2">{track?.artist || "Importa un file"}</div>
-                  </div>
-                </div>
-              )}
+          <div className="mb-4 flex flex-wrap gap-2">
+            <button onClick={() => setQueueMode("upload")} className={`rounded-full px-4 py-2 text-sm ${queueMode === "upload" ? "bg-pink-500 text-black" : "bg-zinc-800"}`}>Personalizzato</button>
+            <button onClick={() => setQueueMode("alpha")} className={`rounded-full px-4 py-2 text-sm ${queueMode === "alpha" ? "bg-pink-500 text-black" : "bg-zinc-800"}`}>Alfabetico</button>
+            <button onClick={() => setQueueMode("random")} className={`rounded-full px-4 py-2 text-sm ${queueMode === "random" ? "bg-pink-500 text-black" : "bg-zinc-800"}`}>Casuale</button>
+          </div>
 
-              {track?.kind === "audio" && <audio ref={audioRef} src={track.src} onEnded={next} className="hidden" />}
-
-              <div className="mt-6 flex items-center justify-center gap-4 text-zinc-200">
-                <button onClick={prev} className="grid h-12 w-12 place-items-center rounded-full bg-zinc-800"><SkipBack /></button>
-                <button onClick={isPlaying ? pauseCurrent : playCurrent} className="grid h-14 w-14 place-items-center rounded-full bg-pink-500 text-black shadow-glow">
-                  {isPlaying ? <Pause /> : <Play />}
+          <div className="space-y-3">
+            {visible.map((s) => (
+              <div
+                key={s.id}
+                className={`rounded-2xl border ${track?.id === s.id ? "border-pink-500 bg-zinc-900" : "border-zinc-800 bg-panel2"} p-4 flex items-center gap-3`}
+              >
+                <button onClick={() => setTrackById(s.id)} className="flex-1 min-h-[52px] text-left">
+                  <div className="font-medium">{s.title}</div>
+                  <div className="text-sm text-zinc-400">{s.artist}</div>
                 </button>
-                <button onClick={next} className="grid h-12 w-12 place-items-center rounded-full bg-zinc-800"><SkipForward /></button>
+
+                <button onClick={() => toggleFav(s.id)} className="grid h-11 w-11 place-items-center rounded-full bg-zinc-800">
+                  <Heart size={18} className={favorites.includes(s.id) ? "fill-pink-500 text-pink-500" : ""} />
+                </button>
+
+                <button onClick={() => removeSong(s.id)} className="grid h-11 w-11 place-items-center rounded-full bg-zinc-800 text-zinc-200">
+                  <Trash2 size={18} />
+                </button>
               </div>
+            ))}
+          </div>
 
-              <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
-                <button onClick={() => setEq({ ...eq, bass: eq.bass === 0 ? 6 : 0 })} className="min-h-[44px] rounded-xl bg-zinc-800 py-2">Bass</button>
-                <button onClick={() => setEq({ ...eq, mid: eq.mid === 0 ? 5 : 0 })} className="min-h-[44px] rounded-xl bg-zinc-800 py-2">Mid</button>
-                <button onClick={() => setEq({ ...eq, treble: eq.treble === 0 ? 5 : 0 })} className="min-h-[44px] rounded-xl bg-zinc-800 py-2">Treble</button>
+          <div className="mt-6 grid gap-3 md:grid-cols-3">
+            <div className="rounded-2xl bg-panel2 p-4">
+              <div className="mb-2 text-sm text-zinc-400">Recenti</div>
+              <div className="space-y-2 text-sm">
+                {recentItems.slice(0, 5).map((s) => <div key={s.id}>{s.title}</div>)}
               </div>
-            </section>
-
-            <section className="space-y-3">
-              {visible.map((s) => (
-                <div
-                  key={s.id}
-                  className={`rounded-2xl border ${track?.id === s.id ? "border-pink-500 bg-zinc-900" : "border-zinc-800 bg-panel2"} p-4 flex items-center gap-3`}
-                >
-                  <button onClick={() => setCurrent(songs.findIndex((x) => x.id === s.id))} className="flex-1 min-h-[52px] text-left">
-                    <div className="font-medium">{s.title}</div>
-                    <div className="text-sm text-zinc-400">{s.artist}</div>
-                  </button>
-
-                  <button onClick={() => toggleFav(s.id)} className="grid h-11 w-11 place-items-center rounded-full bg-zinc-800">
-                    <Heart size={18} className={favorites.includes(s.id) ? "fill-pink-500 text-pink-500" : ""} />
-                  </button>
-
-                  <a
-                    href={`mailto:?subject=${encodeURIComponent(s.title)}&body=${encodeURIComponent("Ascolta: " + s.title)}`}
-                    className="grid h-11 w-11 place-items-center rounded-full bg-zinc-800 text-zinc-200"
-                  >
-                    <Share2 size={18} />
-                  </a>
-
-                  <button onClick={() => removeSong(s.id)} className="grid h-11 w-11 place-items-center rounded-full bg-zinc-800 text-zinc-200">
-                    <Trash2 size={18} />
-                  </button>
-                </div>
-              ))}
-            </section>
+            </div>
+            <div className="rounded-2xl bg-panel2 p-4">
+              <div className="mb-2 text-sm text-zinc-400">Preferiti</div>
+              <div className="space-y-2 text-sm">
+                {favItems.slice(0, 5).map((s) => <div key={s.id}>{s.title}</div>)}
+              </div>
+            </div>
+            <div className="rounded-2xl bg-panel2 p-4">
+              <div className="mb-2 text-sm text-zinc-400">Eliminati</div>
+              <div className="space-y-2 text-sm">
+                {deletedItems.slice(0, 5).map((s) => <div key={s.id}>{s.title}</div>)}
+              </div>
+            </div>
           </div>
         </main>
 
         <aside className="rounded-3xl bg-panel p-4 shadow-glow space-y-4">
           <div className="flex items-center gap-2 text-sm text-zinc-400">
-            <SlidersHorizontal size={16} /> Impostazioni
+            <SlidersHorizontal size={16} /> Stato
           </div>
 
           <div className="rounded-2xl bg-panel2 p-4 space-y-3 text-sm">
-            <div className="flex justify-between"><span>Shuffle</span><Shuffle size={16} /></div>
-            <div className="flex justify-between"><span>Repeat</span><Repeat2 size={16} /></div>
+            <div className="flex justify-between"><span>Brani</span><span>{songs.length}</span></div>
+            <div className="flex justify-between"><span>Preferiti</span><span>{favItems.length}</span></div>
+            <div className="flex justify-between"><span>Eliminati</span><span>{deletedItems.length}</span></div>
           </div>
 
           <div className="rounded-2xl bg-panel2 p-4 text-sm text-zinc-300">
-            MP4: cover estratta dal file. MP3: sfondo gradient casuale.
+            La riproduzione, l’EQ e i preferiti si gestiscono dal mini-player espanso.
           </div>
         </aside>
       </div>
@@ -367,9 +361,14 @@ export default function MusicApp() {
         isPlaying={isPlaying}
         onPlay={playCurrent}
         onPause={pauseCurrent}
-        onPrev={prev}
-        onNext={next}
+        onToggleFav={() => track && toggleFav(track.id)}
+        isFav={track ? favorites.includes(track.id) : false}
         videoRef={videoRef}
+        audioRef={audioRef}
+        eqEnabled={eqEnabled}
+        setEqEnabled={setEqEnabled}
+        eq={eq}
+        setEq={setEq}
       />
     </div>
   );
