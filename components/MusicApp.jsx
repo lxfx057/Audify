@@ -1,11 +1,7 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Play,
-  Pause,
-  SkipBack,
-  SkipForward,
   Heart,
   Search,
   Share2,
@@ -17,11 +13,12 @@ import {
   Repeat2,
   Upload,
   SlidersHorizontal,
-  Video,
-  AudioLines,
+  SkipBack,
+  SkipForward,
+  Play,
+  Pause,
 } from "lucide-react";
-
-const seedSongs = [];
+import MiniPlayer from "./MiniPlayer";
 
 const gradientSets = [
   ["#ff2d55", "#1d4ed8"],
@@ -37,12 +34,6 @@ const randomGradient = () => {
   return `radial-gradient(circle at top left, ${g[0]}, ${g[1]})`;
 };
 
-const shareLinks = (title) => ({
-  email: `mailto:?subject=${encodeURIComponent(title)}&body=${encodeURIComponent("Ascolta: " + title)}`,
-  whatsapp: `https://wa.me/?text=${encodeURIComponent("Ascolta: " + title)}`,
-  bluetooth: "https://support.google.com/chrome/answer/142065?hl=it",
-});
-
 function isVideoFile(file) {
   return (
     file.type.startsWith("video/") ||
@@ -51,15 +42,50 @@ function isVideoFile(file) {
   );
 }
 
+async function extractVideoThumbnail(file) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const v = document.createElement("video");
+    v.preload = "metadata";
+    v.src = url;
+    v.muted = true;
+    v.playsInline = true;
+
+    v.addEventListener("loadeddata", () => {
+      v.currentTime = Math.min(0.5, Math.max(0, v.duration / 10));
+    });
+
+    v.addEventListener("seeked", () => {
+      try {
+        const c = document.createElement("canvas");
+        c.width = v.videoWidth || 320;
+        c.height = v.videoHeight || 320;
+        const ctx = c.getContext("2d");
+        ctx.drawImage(v, 0, 0, c.width, c.height);
+        const dataUrl = c.toDataURL("image/jpeg");
+        URL.revokeObjectURL(url);
+        resolve(dataUrl);
+      } catch (e) {
+        URL.revokeObjectURL(url);
+        resolve(null);
+      }
+    });
+
+    v.addEventListener("error", () => {
+      URL.revokeObjectURL(url);
+      resolve(null);
+    });
+  });
+}
+
 export default function MusicApp() {
-  const [songs, setSongs] = useState(seedSongs);
+  const [songs, setSongs] = useState([]);
   const [current, setCurrent] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [query, setQuery] = useState("");
   const [favorites, setFavorites] = useState([]);
   const [eq, setEq] = useState({ bass: 0, mid: 0, treble: 0 });
-  const [bg, setBg] = useState("radial-gradient(circle at top left, #111827, #000000)");
-  const [mediaMode, setMediaMode] = useState("none");
+
   const audioRef = useRef(null);
   const videoRef = useRef(null);
   const ctxRef = useRef(null);
@@ -76,20 +102,25 @@ export default function MusicApp() {
     if (ctxRef.current || !audioRef.current) return;
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     const source = ctx.createMediaElementSource(audioRef.current);
+
     const bass = ctx.createBiquadFilter();
     bass.type = "lowshelf";
     bass.frequency.value = 110;
+
     const mid = ctx.createBiquadFilter();
     mid.type = "peaking";
     mid.frequency.value = 1000;
     mid.Q.value = 0.8;
+
     const treble = ctx.createBiquadFilter();
     treble.type = "highshelf";
     treble.frequency.value = 9000;
+
     source.connect(bass);
     bass.connect(mid);
     mid.connect(treble);
     treble.connect(ctx.destination);
+
     ctxRef.current = ctx;
     nodesRef.current = { bass, mid, treble };
   };
@@ -104,11 +135,15 @@ export default function MusicApp() {
   const playCurrent = async () => {
     if (!track) return;
     if (track.kind === "video") {
-      await videoRef.current.play();
+      try {
+        await videoRef.current.play();
+      } catch (e) {}
     } else {
       ensureAudioGraph();
       applyEq();
-      await audioRef.current.play();
+      try {
+        await audioRef.current.play();
+      } catch (e) {}
     }
     setIsPlaying(true);
   };
@@ -120,13 +155,11 @@ export default function MusicApp() {
   };
 
   const toggle = () => (isPlaying ? pauseCurrent() : playCurrent());
-
   const next = () => {
     if (!songs.length) return;
     setCurrent((c) => (c + 1) % songs.length);
     setIsPlaying(false);
   };
-
   const prev = () => {
     if (!songs.length) return;
     setCurrent((c) => (c - 1 + songs.length) % songs.length);
@@ -144,39 +177,68 @@ export default function MusicApp() {
     setIsPlaying(false);
   };
 
-  const importFiles = (e) => {
+  const importFiles = async (e) => {
     const files = Array.from(e.target.files || []);
     const valid = files.filter((file) => {
       const name = file.name.toLowerCase();
-      const okMp3 = file.type === "audio/mpeg" || file.type === "audio/mp3" || name.endsWith(".mp3");
-      const okMp4 = file.type === "video/mp4" || file.type === "video/x-m4v" || name.endsWith(".mp4") || name.endsWith(".m4v");
+      const okMp3 =
+        file.type === "audio/mpeg" ||
+        file.type === "audio/mp3" ||
+        name.endsWith(".mp3");
+      const okMp4 =
+        file.type === "video/mp4" ||
+        file.type === "video/x-m4v" ||
+        name.endsWith(".mp4") ||
+        name.endsWith(".m4v");
       return okMp3 || okMp4;
     });
 
-    const added = valid.map((file, i) => {
+    const added = [];
+    for (let i = 0; i < valid.length; i++) {
+      const file = valid[i];
+      const id = Date.now() + i;
       const video = isVideoFile(file);
-      return {
-        id: Date.now() + i,
+      let thumb = null;
+
+      if (video) {
+        thumb = await extractVideoThumbnail(file);
+      }
+
+      added.push({
+        id,
         title: file.name.replace(/\.[^.]+$/, ""),
-        artist: "Local file",
-        album: video ? "Video importato" : "Audio importato",
+        artist: video ? "Video" : "Local",
+        album: video ? "Imported video" : "Imported audio",
         src: URL.createObjectURL(file),
         kind: video ? "video" : "audio",
-        gradient: randomGradient(),
-      };
-    });
+        thumb,
+        gradient: video ? null : randomGradient(),
+      });
+    }
 
     if (added.length) {
       setSongs((s) => [...added, ...s]);
       setCurrent(0);
+      setIsPlaying(false);
     }
   };
 
-  const activeShare = shareLinks(track?.title || "Brano");
-  const showVideo = track?.kind === "video";
+  useEffect(() => {
+    if (!track) return;
+    if (track.kind === "audio" && audioRef.current) {
+      audioRef.current.src = track.src;
+    }
+    if (track.kind === "video" && videoRef.current) {
+      videoRef.current.src = track.src;
+    }
+  }, [track]);
+
+  useEffect(() => {
+    applyEq();
+  }, [eq]);
 
   return (
-    <div className="min-h-screen bg-bg text-white p-4 md:p-6">
+    <div className="min-h-screen bg-bg text-white p-4 md:p-6 pb-28">
       <div className="mx-auto max-w-7xl grid gap-4 lg:grid-cols-[280px_1fr_320px]">
         <aside className="rounded-3xl bg-panel p-4 shadow-glow">
           <div className="flex items-center gap-3 mb-6">
@@ -233,10 +295,13 @@ export default function MusicApp() {
             <section
               className="rounded-3xl border border-zinc-800 p-5"
               style={{
-                background: showVideo ? "#000" : (track?.gradient || bg),
+                background:
+                  track?.kind === "video"
+                    ? "#000"
+                    : track?.gradient || "radial-gradient(circle at top left, #111827, #000)",
               }}
             >
-              {showVideo ? (
+              {track?.kind === "video" ? (
                 <video
                   ref={videoRef}
                   src={track?.src}
@@ -255,11 +320,6 @@ export default function MusicApp() {
                   </div>
                 </div>
               )}
-
-              <div className="mt-5 text-center">
-                <div className="text-2xl font-semibold">{track?.title || "Importa un file"}</div>
-                <div className="text-pink-400">{track?.artist || "Da iPhone funziona"}</div>
-              </div>
 
               {track?.kind === "audio" && (
                 <audio ref={audioRef} src={track?.src} onEnded={next} className="hidden" />
@@ -291,9 +351,14 @@ export default function MusicApp() {
               {visible.map((s) => (
                 <div
                   key={s.id}
-                  className={`rounded-2xl border ${track?.id === s.id ? "border-pink-500 bg-zinc-900" : "border-zinc-800 bg-panel2"} p-4 flex items-center gap-3`}
+                  className={`rounded-2xl border ${
+                    track?.id === s.id ? "border-pink-500 bg-zinc-900" : "border-zinc-800 bg-panel2"
+                  } p-4 flex items-center gap-3`}
                 >
-                  <button onClick={() => setCurrent(songs.findIndex((x) => x.id === s.id))} className="flex-1 text-left">
+                  <button
+                    onClick={() => setCurrent(songs.findIndex((x) => x.id === s.id))}
+                    className="flex-1 text-left"
+                  >
                     <div className="font-medium">{s.title}</div>
                     <div className="text-sm text-zinc-400">{s.artist}</div>
                   </button>
@@ -302,7 +367,10 @@ export default function MusicApp() {
                     <Heart size={18} className={favorites.includes(s.id) ? "fill-pink-500 text-pink-500" : ""} />
                   </button>
 
-                  <a href={activeShare.email} className="text-zinc-400">
+                  <a
+                    href={`mailto:?subject=${encodeURIComponent(s.title)}&body=${encodeURIComponent("Ascolta: " + s.title)}`}
+                    className="text-zinc-400"
+                  >
                     <Share2 size={18} />
                   </a>
 
@@ -324,16 +392,25 @@ export default function MusicApp() {
             <div className="flex justify-between"><span>Shuffle</span><Shuffle size={16} /></div>
             <div className="flex justify-between"><span>Repeat</span><Repeat2 size={16} /></div>
             <div className="flex justify-between"><span>Condividi via</span></div>
-            <a className="block text-pink-400" href={activeShare.email}>Email</a>
-            <a className="block text-pink-400" href={activeShare.whatsapp} target="_blank" rel="noreferrer">WhatsApp</a>
-            <a className="block text-pink-400" href={activeShare.bluetooth} target="_blank" rel="noreferrer">Bluetooth / app</a>
+            <a className="block text-pink-400" href={`mailto:?subject=${encodeURIComponent(track?.title || "Brano")}&body=${encodeURIComponent("Ascolta: " + (track?.title || "Brano"))}`}>Email</a>
+            <a className="block text-pink-400" href={`https://wa.me/?text=${encodeURIComponent("Ascolta: " + (track?.title || "Brano"))}`} target="_blank" rel="noreferrer">WhatsApp</a>
           </div>
 
           <div className="rounded-2xl bg-panel2 p-4 text-sm text-zinc-300">
-            Se importi un MP3, il player usa uno sfondo gradient casuale. Se importi un MP4, parte il video nel player.
+            MP4: cover estratta dal file. MP3: sfondo gradient casuale.
           </div>
         </aside>
       </div>
+
+      <MiniPlayer
+        track={track}
+        isPlaying={isPlaying}
+        onPlay={playCurrent}
+        onPause={pauseCurrent}
+        onPrev={prev}
+        onNext={next}
+        videoRef={videoRef}
+      />
     </div>
   );
 }
