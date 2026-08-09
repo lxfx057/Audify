@@ -63,6 +63,11 @@ async function extractVideoThumbnail(file) {
   });
 }
 
+function formatTime(sec) {
+  if (!Number.isFinite(sec) || sec < 0) return 0;
+  return sec;
+}
+
 export default function MusicApp() {
   const [songs, setSongs] = useState([]);
   const [current, setCurrent] = useState(0);
@@ -73,11 +78,16 @@ export default function MusicApp() {
   const [recent, setRecent] = useState([]);
   const [eqEnabled, setEqEnabled] = useState(true);
   const [eq, setEq] = useState({ bass: 0, mid: 0, treble: 0 });
+  const [queueMode, setQueueMode] = useState("upload");
+  const [duration, setDuration] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
 
   const audioRef = useRef(null);
   const videoRef = useRef(null);
   const ctxRef = useRef(null);
   const nodesRef = useRef(null);
+
+  const track = songs[current] || null;
 
   const ensureAudioGraph = () => {
     if (ctxRef.current || !audioRef.current) return;
@@ -111,7 +121,17 @@ export default function MusicApp() {
     nodesRef.current.treble.gain.value = eq.treble * g;
   };
 
-  const track = songs[current] || null;
+  const visible = useMemo(() => {
+    let list = songs.filter((s) => `${s.title} ${s.artist} ${s.album}`.toLowerCase().includes(query.toLowerCase()));
+    if (queueMode === "alpha") list = [...list].sort((a, b) => a.title.localeCompare(b.title));
+    if (queueMode === "random") list = [...list].sort(() => Math.random() - 0.5);
+    return list;
+  }, [songs, query, queueMode]);
+
+  const setTrackById = (id) => {
+    const idx = songs.findIndex((s) => s.id === id);
+    if (idx >= 0) setCurrent(idx);
+  };
 
   const playCurrent = async () => {
     if (!track) return;
@@ -135,6 +155,18 @@ export default function MusicApp() {
     setIsPlaying(false);
   };
 
+  const next = () => {
+    if (!songs.length) return;
+    setCurrent((c) => (c + 1) % songs.length);
+    setIsPlaying(false);
+  };
+
+  const prev = () => {
+    if (!songs.length) return;
+    setCurrent((c) => (c - 1 + songs.length) % songs.length);
+    setIsPlaying(false);
+  };
+
   const toggleFav = (id) =>
     setFavorites((f) => (f.includes(id) ? f.filter((x) => x !== id) : [...f, id]));
 
@@ -148,11 +180,6 @@ export default function MusicApp() {
     setRecent((r) => r.filter((x) => x !== id));
     setCurrent(Math.max(0, Math.min(idx, list.length - 1)));
     setIsPlaying(false);
-  };
-
-  const setTrackById = (id) => {
-    const idx = songs.findIndex((s) => s.id === id);
-    if (idx >= 0) setCurrent(idx);
   };
 
   const importFiles = async (e) => {
@@ -189,6 +216,12 @@ export default function MusicApp() {
     }
   };
 
+  const seekTo = (value) => {
+    if (track?.kind === "video" && videoRef.current) videoRef.current.currentTime = value;
+    if (track?.kind === "audio" && audioRef.current) audioRef.current.currentTime = value;
+    setCurrentTime(value);
+  };
+
   useEffect(() => {
     if (!track) return;
     if (track.kind === "audio" && audioRef.current) audioRef.current.src = track.src;
@@ -198,6 +231,24 @@ export default function MusicApp() {
   useEffect(() => {
     applyEq();
   }, [eq, eqEnabled]);
+
+  useEffect(() => {
+    const media = track?.kind === "video" ? videoRef.current : audioRef.current;
+    if (!media) return;
+
+    const update = () => setCurrentTime(media.currentTime || 0);
+    const meta = () => setDuration(media.duration || 0);
+
+    media.addEventListener("timeupdate", update);
+    media.addEventListener("loadedmetadata", meta);
+    media.addEventListener("durationchange", meta);
+
+    return () => {
+      media.removeEventListener("timeupdate", update);
+      media.removeEventListener("loadedmetadata", meta);
+      media.removeEventListener("durationchange", meta);
+    };
+  }, [track]);
 
   const recentItems = songs.filter((s) => recent.includes(s.id));
   const favItems = songs.filter((s) => favorites.includes(s.id));
@@ -251,28 +302,32 @@ export default function MusicApp() {
             />
           </div>
 
+          <div className="mb-4 flex flex-wrap gap-2">
+            <button onClick={() => setQueueMode("upload")} className={`rounded-full px-4 py-2 text-sm ${queueMode === "upload" ? "bg-pink-500 text-black" : "bg-zinc-800"}`}>Personalizzato</button>
+            <button onClick={() => setQueueMode("alpha")} className={`rounded-full px-4 py-2 text-sm ${queueMode === "alpha" ? "bg-pink-500 text-black" : "bg-zinc-800"}`}>Alfabetico</button>
+            <button onClick={() => setQueueMode("random")} className={`rounded-full px-4 py-2 text-sm ${queueMode === "random" ? "bg-pink-500 text-black" : "bg-zinc-800"}`}>Casuale</button>
+          </div>
+
           <div className="space-y-3">
-            {songs
-              .filter((s) => `${s.title} ${s.artist} ${s.album}`.toLowerCase().includes(query.toLowerCase()))
-              .map((s) => (
-                <div
-                  key={s.id}
-                  className={`rounded-2xl border ${track?.id === s.id ? "border-pink-500 bg-zinc-900" : "border-zinc-800 bg-panel2"} p-4 flex items-center gap-3`}
-                >
-                  <button onClick={() => setTrackById(s.id)} className="flex-1 min-h-[52px] text-left">
-                    <div className="font-medium">{s.title}</div>
-                    <div className="text-sm text-zinc-400">{s.artist}</div>
-                  </button>
+            {visible.map((s) => (
+              <div
+                key={s.id}
+                className={`rounded-2xl border ${track?.id === s.id ? "border-pink-500 bg-zinc-900" : "border-zinc-800 bg-panel2"} p-4 flex items-center gap-3`}
+              >
+                <button onClick={() => setTrackById(s.id)} className="flex-1 min-h-[52px] text-left">
+                  <div className="font-medium">{s.title}</div>
+                  <div className="text-sm text-zinc-400">{s.artist}</div>
+                </button>
 
-                  <button onClick={() => toggleFav(s.id)} className="grid h-11 w-11 place-items-center rounded-full bg-zinc-800">
-                    <Heart size={18} className={favorites.includes(s.id) ? "fill-pink-500 text-pink-500" : ""} />
-                  </button>
+                <button onClick={() => toggleFav(s.id)} className="grid h-11 w-11 place-items-center rounded-full bg-zinc-800">
+                  <Heart size={18} className={favorites.includes(s.id) ? "fill-pink-500 text-pink-500" : ""} />
+                </button>
 
-                  <button onClick={() => removeSong(s.id)} className="grid h-11 w-11 place-items-center rounded-full bg-zinc-800 text-zinc-200">
-                    <Trash2 size={18} />
-                  </button>
-                </div>
-              ))}
+                <button onClick={() => removeSong(s.id)} className="grid h-11 w-11 place-items-center rounded-full bg-zinc-800 text-zinc-200">
+                  <Trash2 size={18} />
+                </button>
+              </div>
+            ))}
           </div>
 
           <div className="mt-6 grid gap-3 md:grid-cols-3">
@@ -309,7 +364,7 @@ export default function MusicApp() {
           </div>
 
           <div className="rounded-2xl bg-panel2 p-4 text-sm text-zinc-300">
-            La riproduzione, l’EQ e i preferiti si gestiscono dal mini-player espanso.
+            Tutto il controllo principale è nel mini-player espanso.
           </div>
         </aside>
       </div>
@@ -319,24 +374,18 @@ export default function MusicApp() {
         isPlaying={isPlaying}
         onPlay={playCurrent}
         onPause={pauseCurrent}
-        onPrev={() => {
-          if (!songs.length) return;
-          setCurrent((c) => (c - 1 + songs.length) % songs.length);
-          setIsPlaying(false);
-        }}
-        onNext={() => {
-          if (!songs.length) return;
-          setCurrent((c) => (c + 1) % songs.length);
-          setIsPlaying(false);
-        }}
+        onPrev={prev}
+        onNext={next}
         onToggleFav={() => track && toggleFav(track.id)}
         isFav={track ? favorites.includes(track.id) : false}
         videoRef={videoRef}
-        audioRef={audioRef}
         eqEnabled={eqEnabled}
         setEqEnabled={setEqEnabled}
         eq={eq}
         setEq={setEq}
+        duration={formatTime(duration)}
+        currentTime={formatTime(currentTime)}
+        seekTo={seekTo}
       />
     </div>
   );
