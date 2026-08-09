@@ -1,17 +1,18 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Play, Pause, ChevronUp, ChevronDown, Heart } from "lucide-react";
+import { Play, Pause, ChevronUp, ChevronDown, Heart, SkipBack, SkipForward } from "lucide-react";
 
 export default function MiniPlayer({
   track,
   isPlaying,
   onPlay,
   onPause,
+  onPrev,
+  onNext,
   onToggleFav,
   isFav,
   videoRef,
-  audioRef,
   eqEnabled,
   setEqEnabled,
   eq,
@@ -100,6 +101,18 @@ export default function MiniPlayer({
           <div>
             <div className="text-xl font-semibold">{track?.title || "Nessun brano"}</div>
             <div className="text-sm text-zinc-400">{track?.artist || ""}</div>
+          </div>
+
+          <div className="flex items-center justify-center gap-3">
+            <button type="button" onClick={onPrev} className="grid h-12 w-12 place-items-center rounded-full bg-zinc-800">
+              <SkipBack size={18} />
+            </button>
+            <button type="button" onClick={isPlaying ? onPause : onPlay} className="grid h-14 w-14 place-items-center rounded-full bg-pink-500 text-black">
+              {isPlaying ? <Pause size={20} /> : <Play size={20} />}
+            </button>
+            <button type="button" onClick={onNext} className="grid h-12 w-12 place-items-center rounded-full bg-zinc-800">
+              <SkipForward size={18} />
+            </button>
           </div>
 
           <div className="rounded-2xl bg-panel2 p-4">
