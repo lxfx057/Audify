@@ -31,6 +31,10 @@ video {
   max-width: 100%;
 }
 
+input[type="range"] {
+  accent-color: #7db6ff;
+}
+
 @media (any-pointer: coarse) {
   button,
   a,
