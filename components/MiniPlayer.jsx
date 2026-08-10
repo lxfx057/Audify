@@ -46,7 +46,7 @@ export default function MiniPlayer({
 
   return (
     <div
-      className={`fixed left-3 right-3 bottom-3 z-50 overflow-hidden rounded-3xl bg-panel shadow-glow transition-all duration-300 ${
+      className={`fixed left-3 right-3 bottom-3 z-50 overflow-hidden rounded-3xl bg-[#111113] shadow-[0_0_30px_rgba(255,45,85,0.22)] transition-all duration-300 ${
         expanded ? "h-[82vh]" : "h-18"
       }`}
     >
@@ -55,14 +55,13 @@ export default function MiniPlayer({
         onClick={() => setExpanded((v) => !v)}
         className="flex w-full items-center gap-3 px-4 py-3 text-left"
       >
-        <div className="h-12 w-12 overflow-hidden rounded-2xl bg-zinc-800 shrink-0">
+        <div className="h-12 w-12 overflow-hidden rounded-2xl bg-zinc-900 shrink-0">
           {track?.thumb ? (
             <img src={track.thumb} alt="cover" className="h-full w-full object-cover" />
           ) : (
-            <div
-              className="h-full w-full"
-              style={{ background: track?.gradient || "linear-gradient(135deg,#111,#333)" }}
-            />
+            <div className="flex h-full w-full items-center justify-center bg-[#0b0f1a] text-[#4ea3ff]">
+              <span className="text-xl">♫</span>
+            </div>
           )}
         </div>
 
@@ -88,9 +87,16 @@ export default function MiniPlayer({
             {isPlaying ? <Pause size={20} /> : <Play size={20} />}
           </button>
 
-          <span className="grid h-11 w-11 place-items-center rounded-full bg-zinc-800 text-zinc-200">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setExpanded((v) => !v);
+            }}
+            className="grid h-11 w-11 place-items-center rounded-full bg-zinc-800 text-zinc-200"
+          >
             {expanded ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
-          </span>
+          </button>
         </div>
       </button>
 
@@ -107,13 +113,10 @@ export default function MiniPlayer({
                 preload="metadata"
               />
             ) : (
-              <div
-                className="flex h-full w-full items-center justify-center"
-                style={{ background: track?.gradient }}
-              >
+              <div className="flex h-full w-full items-center justify-center bg-[#0b1020]">
                 <div className="text-center">
-                  <div className="text-xs uppercase tracking-[0.35em] text-white/70">MP3</div>
-                  <div className="mt-3 text-2xl font-semibold">{track?.title}</div>
+                  <div className="text-xs uppercase tracking-[0.35em] text-[#4ea3ff]">MP3</div>
+                  <div className="mt-3 text-2xl font-semibold text-white">{track?.title}</div>
                 </div>
               </div>
             )}
@@ -125,7 +128,7 @@ export default function MiniPlayer({
           </div>
 
           <div className="flex items-center gap-3">
-            <div className="text-xs text-zinc-400 w-12">{formatTime(currentTime)}</div>
+            <div className="w-12 text-xs text-zinc-400">{formatTime(currentTime)}</div>
             <input
               type="range"
               min="0"
@@ -134,13 +137,14 @@ export default function MiniPlayer({
               onChange={(e) => seekTo(Number(e.target.value))}
               className="w-full"
             />
-            <div className="text-xs text-zinc-400 w-12 text-right">{formatTime(duration)}</div>
+            <div className="w-12 text-right text-xs text-zinc-400">{formatTime(duration)}</div>
           </div>
 
           <div className="flex items-center justify-center gap-3">
             <button type="button" onClick={onPrev} className="grid h-12 w-12 place-items-center rounded-full bg-zinc-800">
               <SkipBack size={18} />
             </button>
+
             <button
               type="button"
               onClick={isPlaying ? onPause : onPlay}
@@ -148,24 +152,25 @@ export default function MiniPlayer({
             >
               {isPlaying ? <Pause size={20} /> : <Play size={20} />}
             </button>
+
             <button type="button" onClick={onNext} className="grid h-12 w-12 place-items-center rounded-full bg-zinc-800">
               <SkipForward size={18} />
             </button>
           </div>
 
-          <div className="rounded-2xl bg-panel2 p-4">
+          <div className="rounded-2xl bg-[#16161a] p-4">
             <div className="mb-3 text-sm font-medium text-zinc-300">EQ</div>
             <button
               type="button"
               onClick={() => setEqEnabled((v) => !v)}
               className="mb-4 rounded-full bg-zinc-800 px-4 py-2 text-sm"
             >
-              {eqEnabled ? "Disattiva EQ" : "Attiva EQ"}
+              {eqEnabled ? "Disable EQ" : "Enable EQ"}
             </button>
 
             <div className={`space-y-3 ${eqEnabled ? "" : "opacity-40 pointer-events-none"}`}>
               <div>
-                <div className="mb-1 text-xs text-zinc-400">Bassi</div>
+                <div className="mb-1 text-xs text-zinc-400">Bass</div>
                 <input
                   type="range"
                   min="-12"
@@ -176,7 +181,7 @@ export default function MiniPlayer({
                 />
               </div>
               <div>
-                <div className="mb-1 text-xs text-zinc-400">Medi</div>
+                <div className="mb-1 text-xs text-zinc-400">Mid</div>
                 <input
                   type="range"
                   min="-12"
@@ -187,7 +192,7 @@ export default function MiniPlayer({
                 />
               </div>
               <div>
-                <div className="mb-1 text-xs text-zinc-400">Alti</div>
+                <div className="mb-1 text-xs text-zinc-400">Treble</div>
                 <input
                   type="range"
                   min="-12"
