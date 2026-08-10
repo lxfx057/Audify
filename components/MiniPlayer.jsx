@@ -8,6 +8,9 @@ import {
   ChevronDown,
   SkipBack,
   SkipForward,
+  Heart,
+  Shuffle,
+  Repeat,
 } from "lucide-react";
 
 function formatTime(sec) {
@@ -24,6 +27,8 @@ export default function MiniPlayer({
   onPause,
   onPrev,
   onNext,
+  onToggleFav,
+  isFav,
   videoRef,
   audioRef,
   volume,
@@ -31,6 +36,8 @@ export default function MiniPlayer({
   duration,
   currentTime,
   seekTo,
+  mode,
+  setMode,
 }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -38,52 +45,79 @@ export default function MiniPlayer({
     setExpanded(false);
   }, [track?.id]);
 
-  const canShow = !!track;
-
   const title = useMemo(() => {
     if (!track) return "No track selected";
     return track.title || "Untitled";
   }, [track]);
 
+  const isVideo = track?.kind === "video";
+
   return (
     <div
-      className={`fixed left-3 right-3 bottom-20 z-50 overflow-hidden rounded-3xl border border-white/10 bg-[#111113]/95 backdrop-blur-xl shadow-[0_18px_60px_rgba(0,0,0,0.45)] transition-all duration-300 ${
-        expanded ? "h-[78vh]" : "h-[76px]"
-      } ${canShow ? "translate-y-0" : "pointer-events-none opacity-0 translate-y-4"}`}
+      className={`fixed left-3 right-3 bottom-20 z-50 overflow-hidden rounded-[30px] border border-white/10 bg-[#111113]/95 backdrop-blur-xl shadow-[0_18px_60px_rgba(0,0,0,0.45)] transition-all duration-300 ease-out ${
+        expanded ? "h-[82vh]" : "h-[84px]"
+      } ${track ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-4 opacity-0"}`}
     >
-      <div className="flex h-[76px] items-center gap-3 px-4">
-        <div className="h-12 w-12 shrink-0 overflow-hidden rounded-2xl bg-[#0b1020] ring-1 ring-white/10">
+      <div className="flex h-[84px] items-center gap-3 px-4">
+        <div className="h-14 w-14 shrink-0 overflow-hidden rounded-2xl bg-[#0b1020] ring-1 ring-white/10">
           {track?.thumb ? (
             <img src={track.thumb} alt="cover" className="h-full w-full object-cover" />
           ) : (
             <div className="flex h-full w-full items-center justify-center bg-[#0b1020] text-[#7db6ff]">
-              <span className="text-xl">♫</span>
+              <span className="text-2xl">♫</span>
             </div>
           )}
-        </div>
-
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-medium">{title}</div>
-          <div className="truncate text-xs text-zinc-400">{track?.artist || ""}</div>
         </div>
 
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
-          className="grid h-11 w-11 place-items-center rounded-full bg-white/5 text-white transition active:scale-95"
-          aria-label={expanded ? "Collapse player" : "Expand player"}
+          className="min-w-0 flex-1 text-left"
+          aria-label="Toggle player"
         >
-          {expanded ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
+          <div className="truncate text-sm font-medium">{title}</div>
+          <div className="truncate text-xs text-zinc-400">{track?.artist || ""}</div>
         </button>
+
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onToggleFav}
+            className={`grid h-11 w-11 place-items-center rounded-full transition active:scale-95 ${
+              isFav ? "bg-white/10 text-white" : "bg-white/5 text-zinc-300"
+            }`}
+            aria-label="Toggle favorite"
+          >
+            <Heart size={18} className={isFav ? "fill-white text-white" : ""} />
+          </button>
+
+          <button
+            type="button"
+            onClick={isPlaying ? onPause : onPlay}
+            className="grid h-12 w-12 place-items-center rounded-full bg-white text-black transition active:scale-95"
+            aria-label={isPlaying ? "Pause" : "Play"}
+          >
+            {isPlaying ? <Pause size={20} /> : <Play size={20} />}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            className="grid h-11 w-11 place-items-center rounded-full bg-white/5 text-white transition active:scale-95"
+            aria-label={expanded ? "Collapse player" : "Expand player"}
+          >
+            {expanded ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
+          </button>
+        </div>
       </div>
 
       {expanded ? (
-        <div className="flex h-[calc(78vh-76px)] flex-col gap-4 px-4 pb-4">
+        <div className="flex h-[calc(82vh-84px)] flex-col gap-4 px-4 pb-4">
           <div className="relative flex-1 overflow-hidden rounded-3xl border border-white/10 bg-black">
-            {track?.kind === "video" ? (
+            {isVideo ? (
               <video
                 ref={videoRef}
-                src={track.src}
+                src={track?.src}
                 className="h-full w-full object-cover"
                 controls
                 playsInline
@@ -92,13 +126,13 @@ export default function MiniPlayer({
             ) : (
               <div className="flex h-full w-full items-center justify-center bg-[#07111f]">
                 <div className="text-center">
-                  <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-3xl border border-[#244062] bg-[#0b1020] text-4xl text-[#7db6ff] shadow-[0_0_24px_rgba(125,182,255,0.2)]">
+                  <div className="mx-auto flex h-28 w-28 items-center justify-center rounded-[28px] border border-[#244062] bg-[#0b1020] text-5xl text-[#7db6ff] shadow-[0_0_24px_rgba(125,182,255,0.2)]">
                     ♫
                   </div>
                   <div className="mt-4 text-xs uppercase tracking-[0.35em] text-[#7db6ff]">
                     Audio
                   </div>
-                  <div className="mt-2 px-6 text-xl font-semibold text-white">
+                  <div className="mt-2 px-6 text-2xl font-semibold text-white">
                     {track?.title || "No track"}
                   </div>
                 </div>
@@ -125,7 +159,11 @@ export default function MiniPlayer({
           </div>
 
           <div className="flex items-center justify-center gap-3">
-            <button type="button" onClick={onPrev} className="grid h-12 w-12 place-items-center rounded-full bg-white/5 transition active:scale-95">
+            <button
+              type="button"
+              onClick={onPrev}
+              className="grid h-12 w-12 place-items-center rounded-full bg-white/5 transition active:scale-95"
+            >
               <SkipBack size={18} />
             </button>
 
@@ -137,22 +175,58 @@ export default function MiniPlayer({
               {isPlaying ? <Pause size={20} /> : <Play size={20} />}
             </button>
 
-            <button type="button" onClick={onNext} className="grid h-12 w-12 place-items-center rounded-full bg-white/5 transition active:scale-95">
+            <button
+              type="button"
+              onClick={onNext}
+              className="grid h-12 w-12 place-items-center rounded-full bg-white/5 transition active:scale-95"
+            >
               <SkipForward size={18} />
             </button>
           </div>
 
-          <div className="rounded-2xl border border-white/10 bg-[#16161a] p-4">
-            <div className="mb-3 text-sm font-medium text-zinc-300">Volume</div>
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.01"
-              value={volume}
-              onChange={(e) => setVolume(Number(e.target.value))}
-              className="w-full"
-            />
+          <div className="grid gap-3 rounded-2xl border border-white/10 bg-[#16161a] p-4">
+            <div>
+              <div className="mb-2 text-sm font-medium text-zinc-300">Volume</div>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                value={volume}
+                onChange={(e) => setVolume(Number(e.target.value))}
+                className="w-full"
+              />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setMode("normal")}
+                className={`rounded-full px-4 py-2 text-sm transition ${
+                  mode === "normal" ? "bg-white text-black" : "bg-white/5 text-zinc-300"
+                }`}
+              >
+                Normal
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode("shuffle")}
+                className={`rounded-full px-4 py-2 text-sm transition ${
+                  mode === "shuffle" ? "bg-white text-black" : "bg-white/5 text-zinc-300"
+                }`}
+              >
+                Shuffle
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode("loop")}
+                className={`rounded-full px-4 py-2 text-sm transition ${
+                  mode === "loop" ? "bg-white text-black" : "bg-white/5 text-zinc-300"
+                }`}
+              >
+                Loop
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
