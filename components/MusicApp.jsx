@@ -10,6 +10,7 @@ import {
   Upload,
   Music2,
   Heart,
+  RotateCcw,
 } from "lucide-react";
 import MiniPlayer from "./MiniPlayer";
 
@@ -102,8 +103,9 @@ async function dbPut(item) {
   });
 }
 
+const TEN_DAYS = 10 * 24 * 60 * 60 * 1000;
+
 export default function MusicApp() {
-  const [loaded, setLoaded] = useState(false);
   const [songs, setSongs] = useState([]);
   const [deleted, setDeleted] = useState([]);
   const [current, setCurrent] = useState(0);
@@ -117,6 +119,7 @@ export default function MusicApp() {
   const [mode, setMode] = useState("normal");
   const [eqEnabled, setEqEnabled] = useState(true);
   const [eq, setEq] = useState(Array(7).fill(0));
+  const [playStatus, setPlayStatus] = useState("idle");
 
   const audioRef = useRef(null);
   const videoRef = useRef(null);
@@ -134,8 +137,12 @@ export default function MusicApp() {
         setSongs(active);
         setDeleted(trash);
       } catch {}
-      setLoaded(true);
     })();
+  }, []);
+
+  useEffect(() => {
+    const now = Date.now();
+    setDeleted((prev) => prev.filter((x) => !x.deletedAt || now - x.deletedAt <= TEN_DAYS));
   }, []);
 
   useEffect(() => {
@@ -184,8 +191,10 @@ export default function MusicApp() {
     applyEq();
   }, [eq, eqEnabled]);
 
+  const mediaForTrack = () => (track?.kind === "video" ? videoRef.current : audioRef.current);
+
   useEffect(() => {
-    const media = track?.kind === "video" ? videoRef.current : audioRef.current;
+    const media = mediaForTrack();
     if (!media) return;
 
     const update = () => {
@@ -193,16 +202,28 @@ export default function MusicApp() {
       setDuration(media.duration || 0);
     };
 
+    const ended = () => {
+      setIsPlaying(false);
+      if (mode === "loop") {
+        media.currentTime = 0;
+        safePlay(media).then((ok) => setIsPlaying(ok));
+      } else {
+        next();
+      }
+    };
+
     media.addEventListener("timeupdate", update);
     media.addEventListener("loadedmetadata", update);
     media.addEventListener("durationchange", update);
+    media.addEventListener("ended", ended);
 
     return () => {
       media.removeEventListener("timeupdate", update);
       media.removeEventListener("loadedmetadata", update);
       media.removeEventListener("durationchange", update);
+      media.removeEventListener("ended", ended);
     };
-  }, [track]);
+  }, [track, mode]);
 
   const visible = useMemo(() => {
     return songs.filter((s) => `${s.title} ${s.artist}`.toLowerCase().includes(query.toLowerCase()));
@@ -214,7 +235,7 @@ export default function MusicApp() {
   }, [songs, mode]);
 
   const seekTo = (value) => {
-    const media = track?.kind === "video" ? videoRef.current : audioRef.current;
+    const media = mediaForTrack();
     if (!media) return;
     media.currentTime = value;
     setCurrentTime(value);
@@ -227,6 +248,7 @@ export default function MusicApp() {
       if (p && typeof p.then === "function") await p;
       return true;
     } catch {
+      setPlayStatus("stuck");
       return false;
     }
   };
@@ -237,48 +259,45 @@ export default function MusicApp() {
       if (track.kind === "video") {
         const ok = await safePlay(videoRef.current);
         setIsPlaying(ok);
+        setPlayStatus(ok ? "playing" : "stuck");
       } else {
         ensureAudioGraph();
         applyEq();
         const ok = await safePlay(audioRef.current);
         setIsPlaying(ok);
+        setPlayStatus(ok ? "playing" : "stuck");
       }
     } catch {
       setIsPlaying(false);
+      setPlayStatus("stuck");
     }
   };
 
   const pauseCurrent = () => {
-    if (!track) return;
-    if (track.kind === "video") videoRef.current?.pause();
-    else audioRef.current?.pause();
+    const media = mediaForTrack();
+    if (!media) return;
+    media.pause();
     setIsPlaying(false);
+    setPlayStatus("paused");
   };
 
   const playTrack = async (song) => {
     const idx = songs.findIndex((x) => x.id === song.id);
     if (idx < 0) return;
     setCurrent(idx);
-    requestAnimationFrame(() => {
-      const media = song.kind === "video" ? videoRef.current : audioRef.current;
+    requestAnimationFrame(async () => {
       if (song.kind === "audio") ensureAudioGraph();
+      const media = song.kind === "video" ? videoRef.current : audioRef.current;
       if (media) {
-        safePlay(media).then((ok) => setIsPlaying(ok));
+        const ok = await safePlay(media);
+        setIsPlaying(ok);
+        setPlayStatus(ok ? "playing" : "stuck");
       }
     });
   };
 
   const next = () => {
     if (!songs.length) return;
-
-    if (mode === "loop" && track) {
-      const media = track.kind === "video" ? videoRef.current : audioRef.current;
-      if (media) {
-        media.currentTime = 0;
-        safePlay(media).then((ok) => setIsPlaying(ok));
-      }
-      return;
-    }
 
     if (mode === "shuffle") {
       const others = songs.filter((s) => s.id !== track?.id);
@@ -325,6 +344,7 @@ export default function MusicApp() {
         thumb,
         deleted: false,
         createdAt: Date.now(),
+        deletedAt: null,
       };
       await dbPut(item);
       created.push(item);
@@ -346,7 +366,7 @@ export default function MusicApp() {
   const removeSong = async (id) => {
     const item = songs.find((s) => s.id === id);
     if (!item) return;
-    const updated = { ...item, deleted: true };
+    const updated = { ...item, deleted: true, deletedAt: Date.now() };
     await dbPut(updated);
     setSongs((prev) => prev.filter((x) => x.id !== id));
     setDeleted((prev) => [updated, ...prev]);
@@ -356,14 +376,14 @@ export default function MusicApp() {
   const restoreSong = async (id) => {
     const item = deleted.find((s) => s.id === id);
     if (!item) return;
-    const updated = { ...item, deleted: false };
+    if (item.deletedAt && Date.now() - item.deletedAt > TEN_DAYS) return;
+    const updated = { ...item, deleted: false, deletedAt: null };
     await dbPut(updated);
     setDeleted((prev) => prev.filter((x) => x.id !== id));
     setSongs((prev) => [updated, ...prev]);
   };
 
-  const activeCount = songs.length;
-  const trashCount = deleted.length;
+  const restoreable = deleted.filter((x) => x.deletedAt && Date.now() - x.deletedAt <= TEN_DAYS);
 
   return (
     <div className="min-h-screen bg-[#09090b] text-white pb-44">
@@ -395,8 +415,8 @@ export default function MusicApp() {
 
               <div className="grid gap-3 md:grid-cols-2">
                 {[
-                  ["All tracks", activeCount],
-                  ["Deleted", trashCount],
+                  ["All tracks", songs.length],
+                  ["Deleted", deleted.length],
                 ].map(([label, count]) => (
                   <div key={label} className="rounded-2xl border border-white/10 bg-[#16161a] p-4">
                     <div className="text-sm text-zinc-400">{label}</div>
@@ -508,7 +528,45 @@ export default function MusicApp() {
                 </div>
                 <div>
                   <div className="text-lg font-semibold">Settings</div>
-                  <div className="text-sm text-zinc-400">Equalizer and playback</div>
+                  <div className="text-sm text-zinc-400">Equalizer and trash</div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-[#16161a] p-4">
+                <div className="mb-3 flex items-center justify-between text-sm font-medium">
+                  <span>Trash</span>
+                  <span className="text-zinc-400">{restoreable.length} recoverable</span>
+                </div>
+
+                <div className="space-y-3">
+                  {deleted.length ? deleted.map((s) => {
+                    const canRestore = !s.deletedAt || Date.now() - s.deletedAt <= TEN_DAYS;
+                    return (
+                      <div
+                        key={s.id}
+                        className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/25 px-4 py-3"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate font-medium">{s.title}</div>
+                          <div className="truncate text-xs text-zinc-400">
+                            {canRestore ? "Recoverable for 10 days" : "Expired"}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={!canRestore}
+                          onClick={() => restoreSong(s.id)}
+                          className={`rounded-full px-4 py-2 text-sm transition ${
+                            canRestore ? "bg-white/5 text-white active:scale-95" : "cursor-not-allowed bg-white/5 text-zinc-500"
+                          }`}
+                        >
+                          Restore
+                        </button>
+                      </div>
+                    );
+                  }) : (
+                    <div className="text-sm text-zinc-400">Trash is empty.</div>
+                  )}
                 </div>
               </div>
 
@@ -612,6 +670,7 @@ export default function MusicApp() {
         seekTo={seekTo}
         mode={mode}
         setMode={setMode}
+        playStatus={playStatus}
       />
     </div>
   );
