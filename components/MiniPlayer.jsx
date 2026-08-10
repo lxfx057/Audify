@@ -28,7 +28,6 @@ export default function MiniPlayer({
   onToggleFav,
   isFav,
   videoRef,
-  audioRef,
   volume,
   setVolume,
   duration,
@@ -36,19 +35,12 @@ export default function MiniPlayer({
   seekTo,
   mode,
   setMode,
-  playStatus,
 }) {
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     setExpanded(false);
   }, [track?.id]);
-
-  useEffect(() => {
-    if (playStatus === "stuck") {
-      setExpanded(true);
-    }
-  }, [playStatus]);
 
   const title = useMemo(() => track?.title || "No track selected", [track]);
   const isVideo = track?.kind === "video";
