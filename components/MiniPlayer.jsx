@@ -36,12 +36,19 @@ export default function MiniPlayer({
   seekTo,
   mode,
   setMode,
+  playStatus,
 }) {
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     setExpanded(false);
   }, [track?.id]);
+
+  useEffect(() => {
+    if (playStatus === "stuck") {
+      setExpanded(true);
+    }
+  }, [playStatus]);
 
   const title = useMemo(() => track?.title || "No track selected", [track]);
   const isVideo = track?.kind === "video";
@@ -67,7 +74,6 @@ export default function MiniPlayer({
           type="button"
           onClick={() => setExpanded((v) => !v)}
           className="min-w-0 flex-1 text-left"
-          aria-label="Toggle player"
         >
           <div className="truncate text-sm font-medium">{title}</div>
           <div className="truncate text-xs text-zinc-400">{track?.artist || ""}</div>
@@ -79,7 +85,6 @@ export default function MiniPlayer({
           className={`grid h-11 w-11 place-items-center rounded-full transition active:scale-95 ${
             isFav ? "bg-white/10 text-white" : "bg-white/5 text-zinc-300"
           }`}
-          aria-label="Favorite"
         >
           <Heart size={18} className={isFav ? "fill-white text-white" : ""} />
         </button>
@@ -88,7 +93,6 @@ export default function MiniPlayer({
           type="button"
           onClick={isPlaying ? onPause : onPlay}
           className="grid h-12 w-12 place-items-center rounded-full bg-white text-black transition active:scale-95"
-          aria-label={isPlaying ? "Pause" : "Play"}
         >
           {isPlaying ? <Pause size={20} /> : <Play size={20} />}
         </button>
@@ -97,7 +101,6 @@ export default function MiniPlayer({
           type="button"
           onClick={() => setExpanded((v) => !v)}
           className="grid h-11 w-11 place-items-center rounded-full bg-white/5 text-white transition active:scale-95"
-          aria-label={expanded ? "Collapse player" : "Expand player"}
         >
           {expanded ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
         </button>
