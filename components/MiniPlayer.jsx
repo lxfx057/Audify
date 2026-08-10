@@ -9,8 +9,6 @@ import {
   SkipBack,
   SkipForward,
   Heart,
-  Shuffle,
-  Repeat,
 } from "lucide-react";
 
 function formatTime(sec) {
@@ -45,20 +43,16 @@ export default function MiniPlayer({
     setExpanded(false);
   }, [track?.id]);
 
-  const title = useMemo(() => {
-    if (!track) return "No track selected";
-    return track.title || "Untitled";
-  }, [track]);
-
+  const title = useMemo(() => track?.title || "No track selected", [track]);
   const isVideo = track?.kind === "video";
 
   return (
     <div
-      className={`fixed left-3 right-3 bottom-20 z-50 overflow-hidden rounded-[30px] border border-white/10 bg-[#111113]/95 backdrop-blur-xl shadow-[0_18px_60px_rgba(0,0,0,0.45)] transition-all duration-300 ease-out ${
-        expanded ? "h-[82vh]" : "h-[84px]"
+      className={`fixed left-0 right-0 bottom-16 z-50 overflow-hidden border-t border-white/10 bg-[#111113]/96 backdrop-blur-xl transition-all duration-300 ease-out ${
+        expanded ? "h-[86vh]" : "h-[92px]"
       } ${track ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-4 opacity-0"}`}
     >
-      <div className="flex h-[84px] items-center gap-3 px-4">
+      <div className="flex h-[92px] items-center gap-3 px-4">
         <div className="h-14 w-14 shrink-0 overflow-hidden rounded-2xl bg-[#0b1020] ring-1 ring-white/10">
           {track?.thumb ? (
             <img src={track.thumb} alt="cover" className="h-full w-full object-cover" />
@@ -79,40 +73,38 @@ export default function MiniPlayer({
           <div className="truncate text-xs text-zinc-400">{track?.artist || ""}</div>
         </button>
 
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={onToggleFav}
-            className={`grid h-11 w-11 place-items-center rounded-full transition active:scale-95 ${
-              isFav ? "bg-white/10 text-white" : "bg-white/5 text-zinc-300"
-            }`}
-            aria-label="Toggle favorite"
-          >
-            <Heart size={18} className={isFav ? "fill-white text-white" : ""} />
-          </button>
+        <button
+          type="button"
+          onClick={onToggleFav}
+          className={`grid h-11 w-11 place-items-center rounded-full transition active:scale-95 ${
+            isFav ? "bg-white/10 text-white" : "bg-white/5 text-zinc-300"
+          }`}
+          aria-label="Favorite"
+        >
+          <Heart size={18} className={isFav ? "fill-white text-white" : ""} />
+        </button>
 
-          <button
-            type="button"
-            onClick={isPlaying ? onPause : onPlay}
-            className="grid h-12 w-12 place-items-center rounded-full bg-white text-black transition active:scale-95"
-            aria-label={isPlaying ? "Pause" : "Play"}
-          >
-            {isPlaying ? <Pause size={20} /> : <Play size={20} />}
-          </button>
+        <button
+          type="button"
+          onClick={isPlaying ? onPause : onPlay}
+          className="grid h-12 w-12 place-items-center rounded-full bg-white text-black transition active:scale-95"
+          aria-label={isPlaying ? "Pause" : "Play"}
+        >
+          {isPlaying ? <Pause size={20} /> : <Play size={20} />}
+        </button>
 
-          <button
-            type="button"
-            onClick={() => setExpanded((v) => !v)}
-            className="grid h-11 w-11 place-items-center rounded-full bg-white/5 text-white transition active:scale-95"
-            aria-label={expanded ? "Collapse player" : "Expand player"}
-          >
-            {expanded ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="grid h-11 w-11 place-items-center rounded-full bg-white/5 text-white transition active:scale-95"
+          aria-label={expanded ? "Collapse player" : "Expand player"}
+        >
+          {expanded ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
+        </button>
       </div>
 
       {expanded ? (
-        <div className="flex h-[calc(82vh-84px)] flex-col gap-4 px-4 pb-4">
+        <div className="flex h-[calc(86vh-92px)] flex-col gap-4 px-4 pb-4">
           <div className="relative flex-1 overflow-hidden rounded-3xl border border-white/10 bg-black">
             {isVideo ? (
               <video
@@ -184,21 +176,22 @@ export default function MiniPlayer({
             </button>
           </div>
 
-          <div className="grid gap-3 rounded-2xl border border-white/10 bg-[#16161a] p-4">
-            <div>
-              <div className="mb-2 text-sm font-medium text-zinc-300">Volume</div>
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.01"
-                value={volume}
-                onChange={(e) => setVolume(Number(e.target.value))}
-                className="w-full"
-              />
-            </div>
+          <div className="rounded-2xl border border-white/10 bg-[#16161a] p-4">
+            <div className="mb-2 text-sm font-medium text-zinc-300">Volume</div>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              value={volume}
+              onChange={(e) => setVolume(Number(e.target.value))}
+              className="w-full"
+            />
+          </div>
 
-            <div className="flex items-center gap-2">
+          <div className="rounded-2xl border border-white/10 bg-[#16161a] p-4">
+            <div className="mb-3 text-sm font-medium text-zinc-300">Play mode</div>
+            <div className="flex flex-wrap gap-2">
               <button
                 type="button"
                 onClick={() => setMode("normal")}
