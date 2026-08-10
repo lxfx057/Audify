@@ -1,22 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  Home,
-  Folder,
-  Settings,
-  Trash2,
-  Search,
-  Upload,
-  Music2,
-  Heart,
-  RotateCcw,
-} from "lucide-react";
+import { Home, Folder, Settings, Trash2, Search, Upload, Music2, Heart } from "lucide-react";
 import MiniPlayer from "./MiniPlayer";
 
 const DB_NAME = "music-spotlight-db";
 const DB_VERSION = 1;
 const STORE = "tracks";
+const TEN_DAYS = 10 * 24 * 60 * 60 * 1000;
 
 const EQ_BANDS = [
   { label: "60", freq: 60 },
@@ -41,13 +32,10 @@ async function extractVideoThumbnail(file) {
     v.preload = "metadata";
     v.muted = true;
     v.playsInline = true;
-
     const cleanup = () => URL.revokeObjectURL(url);
-
     v.addEventListener("loadeddata", () => {
       v.currentTime = Math.min(0.5, Math.max(0, (v.duration || 1) / 10));
     });
-
     v.addEventListener("seeked", () => {
       try {
         const c = document.createElement("canvas");
@@ -63,7 +51,6 @@ async function extractVideoThumbnail(file) {
         resolve(null);
       }
     });
-
     v.addEventListener("error", () => {
       cleanup();
       resolve(null);
@@ -103,7 +90,9 @@ async function dbPut(item) {
   });
 }
 
-const TEN_DAYS = 10 * 24 * 60 * 60 * 1000;
+function shuffleArray(list) {
+  return [...list].sort(() => Math.random() - 0.5);
+}
 
 export default function MusicApp() {
   const [songs, setSongs] = useState([]);
@@ -119,7 +108,6 @@ export default function MusicApp() {
   const [mode, setMode] = useState("normal");
   const [eqEnabled, setEqEnabled] = useState(true);
   const [eq, setEq] = useState(Array(7).fill(0));
-  const [playStatus, setPlayStatus] = useState("idle");
 
   const audioRef = useRef(null);
   const videoRef = useRef(null);
@@ -141,8 +129,7 @@ export default function MusicApp() {
   }, []);
 
   useEffect(() => {
-    const now = Date.now();
-    setDeleted((prev) => prev.filter((x) => !x.deletedAt || now - x.deletedAt <= TEN_DAYS));
+    setDeleted((prev) => prev.filter((x) => !x.deletedAt || Date.now() - x.deletedAt <= TEN_DAYS));
   }, []);
 
   useEffect(() => {
@@ -196,12 +183,10 @@ export default function MusicApp() {
   useEffect(() => {
     const media = mediaForTrack();
     if (!media) return;
-
     const update = () => {
       setCurrentTime(media.currentTime || 0);
       setDuration(media.duration || 0);
     };
-
     const ended = () => {
       setIsPlaying(false);
       if (mode === "loop") {
@@ -211,12 +196,10 @@ export default function MusicApp() {
         next();
       }
     };
-
     media.addEventListener("timeupdate", update);
     media.addEventListener("loadedmetadata", update);
     media.addEventListener("durationchange", update);
     media.addEventListener("ended", ended);
-
     return () => {
       media.removeEventListener("timeupdate", update);
       media.removeEventListener("loadedmetadata", update);
@@ -225,14 +208,12 @@ export default function MusicApp() {
     };
   }, [track, mode]);
 
-  const visible = useMemo(() => {
-    return songs.filter((s) => `${s.title} ${s.artist}`.toLowerCase().includes(query.toLowerCase()));
-  }, [songs, query]);
+  const visible = useMemo(
+    () => songs.filter((s) => `${s.title} ${s.artist}`.toLowerCase().includes(query.toLowerCase())),
+    [songs, query]
+  );
 
-  const orderedSongs = useMemo(() => {
-    if (mode === "shuffle") return [...songs].sort(() => Math.random() - 0.5);
-    return songs;
-  }, [songs, mode]);
+  const orderedSongs = useMemo(() => (mode === "shuffle" ? shuffleArray(songs) : songs), [songs, mode]);
 
   const seekTo = (value) => {
     const media = mediaForTrack();
@@ -248,7 +229,6 @@ export default function MusicApp() {
       if (p && typeof p.then === "function") await p;
       return true;
     } catch {
-      setPlayStatus("stuck");
       return false;
     }
   };
@@ -259,17 +239,14 @@ export default function MusicApp() {
       if (track.kind === "video") {
         const ok = await safePlay(videoRef.current);
         setIsPlaying(ok);
-        setPlayStatus(ok ? "playing" : "stuck");
       } else {
         ensureAudioGraph();
         applyEq();
         const ok = await safePlay(audioRef.current);
         setIsPlaying(ok);
-        setPlayStatus(ok ? "playing" : "stuck");
       }
     } catch {
       setIsPlaying(false);
-      setPlayStatus("stuck");
     }
   };
 
@@ -278,7 +255,6 @@ export default function MusicApp() {
     if (!media) return;
     media.pause();
     setIsPlaying(false);
-    setPlayStatus("paused");
   };
 
   const playTrack = async (song) => {
@@ -291,14 +267,12 @@ export default function MusicApp() {
       if (media) {
         const ok = await safePlay(media);
         setIsPlaying(ok);
-        setPlayStatus(ok ? "playing" : "stuck");
       }
     });
   };
 
   const next = () => {
     if (!songs.length) return;
-
     if (mode === "shuffle") {
       const others = songs.filter((s) => s.id !== track?.id);
       if (!others.length) return;
@@ -306,7 +280,6 @@ export default function MusicApp() {
       playTrack(pick);
       return;
     }
-
     const idx = track ? songs.findIndex((s) => s.id === track.id) : 0;
     const nextIndex = (idx + 1) % songs.length;
     playTrack(songs[nextIndex]);
@@ -414,10 +387,7 @@ export default function MusicApp() {
               </label>
 
               <div className="grid gap-3 md:grid-cols-2">
-                {[
-                  ["All tracks", songs.length],
-                  ["Deleted", deleted.length],
-                ].map(([label, count]) => (
+                {[["All tracks", songs.length], ["Deleted", deleted.length]].map(([label, count]) => (
                   <div key={label} className="rounded-2xl border border-white/10 bg-[#16161a] p-4">
                     <div className="text-sm text-zinc-400">{label}</div>
                     <div className="mt-2 text-2xl font-semibold">{count}</div>
@@ -662,7 +632,6 @@ export default function MusicApp() {
         onToggleFav={() => track && toggleFav(track.id)}
         isFav={track ? favorites.includes(track.id) : false}
         videoRef={videoRef}
-        audioRef={audioRef}
         volume={volume}
         setVolume={setVolume}
         duration={duration}
@@ -670,7 +639,6 @@ export default function MusicApp() {
         seekTo={seekTo}
         mode={mode}
         setMode={setMode}
-        playStatus={playStatus}
       />
     </div>
   );
