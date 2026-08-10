@@ -28,8 +28,6 @@ export default function MiniPlayer({
   onToggleFav,
   isFav,
   videoRef,
-  volume,
-  setVolume,
   duration,
   currentTime,
   seekTo,
@@ -169,19 +167,6 @@ export default function MiniPlayer({
             >
               <SkipForward size={18} />
             </button>
-          </div>
-
-          <div className="rounded-2xl border border-white/10 bg-[#16161a] p-4">
-            <div className="mb-2 text-sm font-medium text-zinc-300">Volume</div>
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.01"
-              value={volume}
-              onChange={(e) => setVolume(Number(e.target.value))}
-              className="w-full"
-            />
           </div>
 
           <div className="rounded-2xl border border-white/10 bg-[#16161a] p-4">
