@@ -1,14 +1,36 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Heart, Search, Trash2, Music2, LibraryBig, Upload, SlidersHorizontal } from "lucide-react";
+import {
+  Home,
+  Folder,
+  Settings,
+  Trash2,
+  Search,
+  Upload,
+  PlayCircle,
+  Shield,
+  LogIn,
+  Music2,
+  LibraryBig,
+} from "lucide-react";
 import MiniPlayer from "./MiniPlayer";
 
-const randomGradient = () => "radial-gradient(circle at top left, #0b1020, #050816 55%, #02040a 100%)";
+const DB_NAME = "music-spotlight-db";
+const DB_VERSION = 1;
+const STORE = "tracks";
 
 function isVideoFile(file) {
   const name = file.name.toLowerCase();
   return file.type.startsWith("video/") || name.endsWith(".mp4") || name.endsWith(".m4v");
+}
+
+function randomCover() {
+  return {
+    type: "mp3",
+    color: "#0b1020",
+    accent: "#7db6ff",
+  };
 }
 
 async function extractVideoThumbnail(file) {
@@ -19,13 +41,11 @@ async function extractVideoThumbnail(file) {
     v.preload = "metadata";
     v.muted = true;
     v.playsInline = true;
-    v.crossOrigin = "anonymous";
 
     const cleanup = () => URL.revokeObjectURL(url);
 
     v.addEventListener("loadeddata", () => {
-      const t = Math.min(0.5, Math.max(0, (v.duration || 1) / 10));
-      v.currentTime = t;
+      v.currentTime = Math.min(0.5, Math.max(0, (v.duration || 1) / 10));
     });
 
     v.addEventListener("seeked", () => {
@@ -51,26 +71,96 @@ async function extractVideoThumbnail(file) {
   });
 }
 
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(STORE)) {
+        db.createObjectStore(STORE, { keyPath: "id" });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function dbGetAll() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, "readonly");
+    const store = tx.objectStore(STORE);
+    const req = store.getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function dbPut(item) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, "readwrite");
+    tx.objectStore(STORE).put(item);
+    tx.oncomplete = () => resolve(true);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function dbDelete(id) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, "readwrite");
+    tx.objectStore(STORE).delete(id);
+    tx.oncomplete = () => resolve(true);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
 export default function MusicApp() {
+  const [loaded, setLoaded] = useState(false);
   const [songs, setSongs] = useState([]);
-  const [current, setCurrent] = useState(0);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [query, setQuery] = useState("");
-  const [favorites, setFavorites] = useState([]);
   const [deleted, setDeleted] = useState([]);
-  const [recent, setRecent] = useState([]);
-  const [eqEnabled, setEqEnabled] = useState(true);
-  const [eq, setEq] = useState({ bass: 0, mid: 0, treble: 0 });
-  const [queueMode, setQueueMode] = useState("upload");
+  const [current, setCurrent] = useState(0);
+  const [section, setSection] = useState("home");
+  const [query, setQuery] = useState("");
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [volume, setVolume] = useState(0.9);
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
 
   const audioRef = useRef(null);
   const videoRef = useRef(null);
+  const [authed, setAuthed] = useState(false);
+  const [eqEnabled, setEqEnabled] = useState(true);
+  const [eq, setEq] = useState({ bass: 0, mid: 0, treble: 0 });
   const ctxRef = useRef(null);
   const nodesRef = useRef(null);
 
   const track = songs[current] || null;
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const stored = await dbGetAll();
+        const active = stored.filter((x) => !x.deleted);
+        const trash = stored.filter((x) => x.deleted);
+        setSongs(active);
+        setDeleted(trash);
+      } catch {}
+      setLoaded(true);
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (audioRef.current) audioRef.current.volume = volume;
+    if (videoRef.current) videoRef.current.volume = volume;
+  }, [volume]);
+
+  useEffect(() => {
+    if (!track) return;
+    if (track.kind === "audio" && audioRef.current) audioRef.current.src = track.src;
+    if (track.kind === "video" && videoRef.current) videoRef.current.src = track.src;
+  }, [track]);
 
   const ensureAudioGraph = () => {
     if (ctxRef.current || !audioRef.current) return;
@@ -86,12 +176,10 @@ export default function MusicApp() {
     const treble = ctx.createBiquadFilter();
     treble.type = "highshelf";
     treble.frequency.value = 9000;
-
     source.connect(bass);
     bass.connect(mid);
     mid.connect(treble);
     treble.connect(ctx.destination);
-
     ctxRef.current = ctx;
     nodesRef.current = { bass, mid, treble };
   };
@@ -104,27 +192,31 @@ export default function MusicApp() {
     nodesRef.current.treble.gain.value = eq.treble * g;
   };
 
+  useEffect(() => {
+    applyEq();
+  }, [eq, eqEnabled]);
+
+  useEffect(() => {
+    const media = track?.kind === "video" ? videoRef.current : audioRef.current;
+    if (!media) return;
+    const update = () => setCurrentTime(media.currentTime || 0);
+    const meta = () => setDuration(media.duration || 0);
+    media.addEventListener("timeupdate", update);
+    media.addEventListener("loadedmetadata", meta);
+    media.addEventListener("durationchange", meta);
+    return () => {
+      media.removeEventListener("timeupdate", update);
+      media.removeEventListener("loadedmetadata", meta);
+      media.removeEventListener("durationchange", meta);
+    };
+  }, [track]);
+
   const visible = useMemo(() => {
-    let list = songs.filter((s) => `${s.title} ${s.artist} ${s.album}`.toLowerCase().includes(query.toLowerCase()));
-    if (queueMode === "alpha") list = [...list].sort((a, b) => a.title.localeCompare(b.title));
-    if (queueMode === "random") list = [...list].sort(() => Math.random() - 0.5);
-    return list;
-  }, [songs, query, queueMode]);
-
-  const setTrackById = (id) => {
-    const idx = songs.findIndex((s) => s.id === id);
-    if (idx >= 0) setCurrent(idx);
-  };
-
-  const syncMedia = () => {
-    if (!track) return;
-    if (track.kind === "audio" && audioRef.current) audioRef.current.src = track.src;
-    if (track.kind === "video" && videoRef.current) videoRef.current.src = track.src;
-  };
+    return songs.filter((s) => `${s.title} ${s.artist}`.toLowerCase().includes(query.toLowerCase()));
+  }, [songs, query]);
 
   const playCurrent = async () => {
     if (!track) return;
-    syncMedia();
     try {
       if (track.kind === "video") {
         await videoRef.current.play();
@@ -134,7 +226,6 @@ export default function MusicApp() {
         await audioRef.current.play();
       }
       setIsPlaying(true);
-      setRecent((r) => [track.id, ...r.filter((x) => x !== track.id)].slice(0, 12));
     } catch {}
   };
 
@@ -143,6 +234,13 @@ export default function MusicApp() {
     if (track.kind === "video") videoRef.current.pause();
     else audioRef.current.pause();
     setIsPlaying(false);
+  };
+
+  const seekTo = (value) => {
+    const media = track?.kind === "video" ? videoRef.current : audioRef.current;
+    if (!media) return;
+    media.currentTime = value;
+    setCurrentTime(value);
   };
 
   const next = () => {
@@ -157,205 +255,337 @@ export default function MusicApp() {
     setIsPlaying(false);
   };
 
-  const toggleFav = (id) =>
-    setFavorites((f) => (f.includes(id) ? f.filter((x) => x !== id) : [...f, id]));
-
-  const removeSong = (id) => {
-    const idx = songs.findIndex((s) => s.id === id);
-    const removed = songs.find((s) => s.id === id);
-    const list = songs.filter((s) => s.id !== id);
-    setSongs(list);
-    if (removed) setDeleted((d) => [removed.id, ...d.filter((x) => x !== removed.id)]);
-    setFavorites((f) => f.filter((x) => x !== id));
-    setRecent((r) => r.filter((x) => x !== id));
-    setCurrent(Math.max(0, Math.min(idx, list.length - 1)));
-    setIsPlaying(false);
-  };
-
-  const importFiles = async (e) => {
-    const files = Array.from(e.target.files || []);
-    const valid = files.filter((file) => {
+  const addFiles = async (files) => {
+    const valid = Array.from(files || []).filter((file) => {
       const name = file.name.toLowerCase();
-      const okMp3 = file.type === "audio/mpeg" || file.type === "audio/mp3" || name.endsWith(".mp3");
-      const okMp4 = file.type === "video/mp4" || file.type === "video/x-m4v" || name.endsWith(".mp4") || name.endsWith(".m4v");
+      const okMp3 = file.type.startsWith("audio/") || name.endsWith(".mp3");
+      const okMp4 = file.type.startsWith("video/") || name.endsWith(".mp4") || name.endsWith(".m4v");
       return okMp3 || okMp4;
     });
 
-    const added = [];
-    for (let i = 0; i < valid.length; i++) {
-      const file = valid[i];
-      const video = isVideoFile(file);
-      const thumb = video ? await extractVideoThumbnail(file) : null;
-
-      added.push({
-        id: Date.now() + i,
+    const created = [];
+    for (const file of valid) {
+      const id = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+      const kind = isVideoFile(file) ? "video" : "audio";
+      const thumb = kind === "video" ? await extractVideoThumbnail(file) : null;
+      const item = {
+        id,
         title: file.name.replace(/\.[^.]+$/, ""),
-        artist: video ? "Video" : "Local",
-        album: video ? "Imported video" : "Imported audio",
+        artist: kind === "video" ? "Video" : "Local file",
+        kind,
         src: URL.createObjectURL(file),
-        kind: video ? "video" : "audio",
         thumb,
-        gradient: video ? null : randomGradient(),
-      });
+        deleted: false,
+        createdAt: Date.now(),
+        volume: 1,
+      };
+      await dbPut(item);
+      created.push(item);
     }
 
-    if (added.length) {
-      setSongs((s) => [...s, ...added]);
+    if (created.length) {
+      setSongs((prev) => [...created, ...prev]);
       setCurrent(0);
-      setIsPlaying(false);
     }
   };
 
-  const seekTo = (value) => {
-    if (track?.kind === "video" && videoRef.current) videoRef.current.currentTime = value;
-    if (track?.kind === "audio" && audioRef.current) audioRef.current.currentTime = value;
-    setCurrentTime(value);
+  const importFiles = async (e) => {
+    await addFiles(e.target.files);
+    e.target.value = "";
   };
 
-  useEffect(() => {
-    syncMedia();
-  }, [track]);
+  const removeSong = async (id) => {
+    const item = songs.find((s) => s.id === id);
+    if (!item) return;
+    const updated = { ...item, deleted: true };
+    await dbPut(updated);
+    setSongs((prev) => prev.filter((x) => x.id !== id));
+    setDeleted((prev) => [updated, ...prev]);
+    if (track?.id === id) setIsPlaying(false);
+  };
 
-  useEffect(() => {
-    applyEq();
-  }, [eq, eqEnabled]);
+  const restoreSong = async (id) => {
+    const item = deleted.find((s) => s.id === id);
+    if (!item) return;
+    const updated = { ...item, deleted: false };
+    await dbPut(updated);
+    setDeleted((prev) => prev.filter((x) => x.id !== id));
+    setSongs((prev) => [updated, ...prev]);
+  };
 
-  useEffect(() => {
-    const media = track?.kind === "video" ? videoRef.current : audioRef.current;
-    if (!media) return;
+  const activeSection = section === "home" ? "home" : section === "files" ? "files" : "settings";
 
-    const update = () => setCurrentTime(media.currentTime || 0);
-    const meta = () => setDuration(media.duration || 0);
+  const trackList = activeSection === "files" ? deleted : songs;
 
-    media.addEventListener("timeupdate", update);
-    media.addEventListener("loadedmetadata", meta);
-    media.addEventListener("durationchange", meta);
-
-    return () => {
-      media.removeEventListener("timeupdate", update);
-      media.removeEventListener("loadedmetadata", meta);
-      media.removeEventListener("durationchange", meta);
-    };
-  }, [track]);
-
-  const recentItems = songs.filter((s) => recent.includes(s.id));
-  const favItems = songs.filter((s) => favorites.includes(s.id));
-  const deletedItems = songs.filter((s) => deleted.includes(s.id));
+  const activeItems = loaded ? visible : [];
 
   return (
-    <div className="min-h-screen bg-[#09090b] text-white p-4 md:p-6 pb-28">
-      <div className="mx-auto max-w-7xl grid gap-4 lg:grid-cols-[280px_1fr_320px]">
-        <aside className="rounded-3xl bg-[#111113] p-4 shadow-[0_0_30px_rgba(255,45,85,0.22)]">
-          <div className="flex items-center gap-3 mb-6">
-            <Music2 className="text-pink-500" />
-            <div>
-              <div className="font-semibold">Music Spotlight</div>
-              <div className="text-xs text-zinc-400">Mobile ready</div>
+    <div className="min-h-screen bg-[#09090b] text-white pb-36">
+      <div className="mx-auto max-w-7xl px-4 pt-4">
+        <div className="rounded-[28px] border border-white/10 bg-[#111113] p-4 shadow-[0_18px_60px_rgba(0,0,0,0.38)]">
+          {activeSection === "home" ? (
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="grid h-12 w-12 place-items-center rounded-2xl bg-white/5 text-[#7db6ff]">
+                  <Music2 />
+                </div>
+                <div>
+                  <div className="text-lg font-semibold">Home</div>
+                  <div className="text-sm text-zinc-400">Import and browse your folders</div>
+                </div>
+              </div>
+
+              <label className="flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-4 transition active:scale-[0.99]">
+                <Upload size={16} />
+                Import files
+                <input
+                  type="file"
+                  multiple
+                  className="hidden"
+                  accept="audio/*,video/*,.mp3,.mp4,.m4v"
+                  onChange={importFiles}
+                />
+              </label>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                {[
+                  ["All tracks", songs.length],
+                  ["Deleted", deleted.length],
+                ].map(([label, count]) => (
+                  <div key={label} className="rounded-2xl border border-white/10 bg-[#16161a] p-4">
+                    <div className="text-sm text-zinc-400">{label}</div>
+                    <div className="mt-2 text-2xl font-semibold">{count}</div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-[#16161a] p-4">
+                <div className="mb-3 flex items-center gap-2 text-sm text-zinc-400">
+                  <Search size={15} /> Search
+                </div>
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search imported files"
+                  className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 outline-none"
+                />
+              </div>
+
+              <div className="space-y-3">
+                {activeItems.map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => {
+                      const idx = songs.findIndex((x) => x.id === s.id);
+                      if (idx >= 0) setCurrent(idx);
+                    }}
+                    className="flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-[#16161a] px-4 py-3 text-left transition hover:bg-white/5 active:scale-[0.99]"
+                  >
+                    <div className="h-12 w-12 overflow-hidden rounded-2xl bg-[#0b1020]">
+                      {s.kind === "video" && s.thumb ? (
+                        <img src={s.thumb} className="h-full w-full object-cover" alt="" />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center text-[#7db6ff]">♫</div>
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-medium">{s.title}</div>
+                      <div className="truncate text-sm text-zinc-400">{s.artist}</div>
+                    </div>
+                    <PlayCircle size={18} className="text-white/60" />
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          ) : null}
 
-          <div className="space-y-2 text-sm">
-            <div className="rounded-2xl bg-[#16161a] px-4 py-3 flex items-center gap-3">
-              <LibraryBig size={16} className="text-pink-500" /> Recenti
+          {activeSection === "files" ? (
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="grid h-12 w-12 place-items-center rounded-2xl bg-white/5 text-[#7db6ff]">
+                  <Folder />
+                </div>
+                <div>
+                  <div className="text-lg font-semibold">Files</div>
+                  <div className="text-sm text-zinc-400">Manage and delete uploaded files</div>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {deleted.map((s) => (
+                  <div
+                    key={s.id}
+                    className="flex items-center gap-3 rounded-2xl border border-white/10 bg-[#16161a] px-4 py-3"
+                  >
+                    <div className="h-12 w-12 overflow-hidden rounded-2xl bg-[#0b1020]">
+                      {s.kind === "video" && s.thumb ? (
+                        <img src={s.thumb} className="h-full w-full object-cover" alt="" />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center text-[#7db6ff]">♫</div>
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-medium">{s.title}</div>
+                      <div className="truncate text-sm text-zinc-400">Deleted</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => restoreSong(s.id)}
+                      className="rounded-full bg-white/5 px-4 py-2 text-sm transition active:scale-[0.99]"
+                    >
+                      Restore
+                    </button>
+                  </div>
+                ))}
+
+                {songs.map((s) => (
+                  <div
+                    key={s.id}
+                    className="flex items-center gap-3 rounded-2xl border border-white/10 bg-[#16161a] px-4 py-3"
+                  >
+                    <div className="h-12 w-12 overflow-hidden rounded-2xl bg-[#0b1020]">
+                      {s.kind === "video" && s.thumb ? (
+                        <img src={s.thumb} className="h-full w-full object-cover" alt="" />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center text-[#7db6ff]">♫</div>
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-medium">{s.title}</div>
+                      <div className="truncate text-sm text-zinc-400">Active file</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removeSong(s.id)}
+                      className="grid h-11 w-11 place-items-center rounded-full bg-white/5 transition active:scale-[0.99]"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
-            <div className="rounded-2xl bg-[#16161a] px-4 py-3 flex items-center gap-3">
-              <Heart size={16} className="text-pink-500" /> Preferiti
-            </div>
-            <div className="rounded-2xl bg-[#16161a] px-4 py-3 flex items-center gap-3">
-              <Trash2 size={16} className="text-pink-500" /> Eliminati
-            </div>
-          </div>
+          ) : null}
 
-          <label className="mt-6 flex min-h-[52px] cursor-pointer items-center justify-center gap-2 rounded-2xl border border-zinc-800 px-4 py-3 text-sm active:scale-[0.99]">
-            <Upload size={16} />
-            Import file
-            <input
-              type="file"
-              multiple
-              className="hidden"
-              accept="audio/mpeg,audio/mp3,.mp3,video/mp4,video/x-m4v,.mp4,.m4v,video/*"
-              onChange={importFiles}
-            />
-          </label>
-        </aside>
+          {activeSection === "settings" ? (
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="grid h-12 w-12 place-items-center rounded-2xl bg-white/5 text-[#7db6ff]">
+                  <Settings />
+                </div>
+                <div>
+                  <div className="text-lg font-semibold">Settings</div>
+                  <div className="text-sm text-zinc-400">Equalizer, playback and login</div>
+                </div>
+              </div>
 
-        <main className="rounded-3xl bg-[#111113] p-4 md:p-6 shadow-[0_0_30px_rgba(255,45,85,0.22)]">
-          <div className="flex items-center gap-3 rounded-2xl bg-[#16161a] px-4 py-3 mb-5">
-            <Search size={16} className="text-zinc-400 shrink-0" />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search songs, albums, artist"
-              className="w-full bg-transparent outline-none"
-            />
-          </div>
-
-          <div className="mb-4 flex flex-wrap gap-2">
-            <button onClick={() => setQueueMode("upload")} className={`rounded-full px-4 py-2 text-sm ${queueMode === "upload" ? "bg-pink-500 text-black" : "bg-zinc-800"}`}>Custom</button>
-            <button onClick={() => setQueueMode("alpha")} className={`rounded-full px-4 py-2 text-sm ${queueMode === "alpha" ? "bg-pink-500 text-black" : "bg-zinc-800"}`}>Alphabetical</button>
-            <button onClick={() => setQueueMode("random")} className={`rounded-full px-4 py-2 text-sm ${queueMode === "random" ? "bg-pink-500 text-black" : "bg-zinc-800"}`}>Random</button>
-          </div>
-
-          <div className="space-y-3 max-h-[56vh] overflow-auto pr-1">
-            {visible.map((s) => (
-              <div
-                key={s.id}
-                className={`rounded-2xl border ${track?.id === s.id ? "border-pink-500 bg-zinc-900" : "border-zinc-800 bg-[#16161a]"} p-4 flex items-center gap-3`}
-              >
-                <button onClick={() => setTrackById(s.id)} className="flex-1 min-h-[52px] text-left">
-                  <div className="font-medium">{s.title}</div>
-                  <div className="text-sm text-zinc-400">{s.artist}</div>
+              <div className="rounded-2xl border border-white/10 bg-[#16161a] p-4">
+                <div className="mb-3 text-sm font-medium">Login</div>
+                <button
+                  type="button"
+                  onClick={() => setAuthed((v) => !v)}
+                  className="flex items-center gap-2 rounded-xl bg-white/5 px-4 py-3 transition active:scale-[0.99]"
+                >
+                  <LogIn size={16} />
+                  {authed ? "Logout" : "Login"}
                 </button>
+                <div className="mt-2 text-sm text-zinc-400">
+                  {authed ? "Connected" : "Not connected"}
+                </div>
+              </div>
 
-                <button onClick={() => toggleFav(s.id)} className="grid h-11 w-11 place-items-center rounded-full bg-zinc-800">
-                  <Heart size={18} className={favorites.includes(s.id) ? "fill-pink-500 text-pink-500" : ""} />
+              <div className="rounded-2xl border border-white/10 bg-[#16161a] p-4">
+                <div className="mb-3 text-sm font-medium">Equalizer</div>
+                <button
+                  type="button"
+                  onClick={() => setEqEnabled((v) => !v)}
+                  className="mb-4 rounded-full bg-white/5 px-4 py-2 text-sm transition active:scale-[0.99]"
+                >
+                  {eqEnabled ? "Disable EQ" : "Enable EQ"}
                 </button>
-
-                <button onClick={() => removeSong(s.id)} className="grid h-11 w-11 place-items-center rounded-full bg-zinc-800 text-zinc-200">
-                  <Trash2 size={18} />
-                </button>
+                <div className={`space-y-3 ${eqEnabled ? "" : "pointer-events-none opacity-40"}`}>
+                  <div>
+                    <div className="mb-1 text-xs text-zinc-400">Bass</div>
+                    <input
+                      type="range"
+                      min="-12"
+                      max="12"
+                      value={eq.bass}
+                      onChange={(e) => setEq((s) => ({ ...s, bass: Number(e.target.value) }))}
+                      className="w-full"
+                    />
+                  </div>
+                  <div>
+                    <div className="mb-1 text-xs text-zinc-400">Mid</div>
+                    <input
+                      type="range"
+                      min="-12"
+                      max="12"
+                      value={eq.mid}
+                      onChange={(e) => setEq((s) => ({ ...s, mid: Number(e.target.value) }))}
+                      className="w-full"
+                    />
+                  </div>
+                  <div>
+                    <div className="mb-1 text-xs text-zinc-400">Treble</div>
+                    <input
+                      type="range"
+                      min="-12"
+                      max="12"
+                      value={eq.treble}
+                      onChange={(e) => setEq((s) => ({ ...s, treble: Number(e.target.value) }))}
+                      className="w-full"
+                    />
+                  </div>
+                </div>
               </div>
-            ))}
-          </div>
 
-          <div className="mt-6 grid gap-3 md:grid-cols-3">
-            <div className="rounded-2xl bg-[#16161a] p-4">
-              <div className="mb-2 text-sm text-zinc-400">Recenti</div>
-              <div className="space-y-2 text-sm">
-                {recentItems.slice(0, 5).map((s) => <div key={s.id}>{s.title}</div>)}
+              <div className="rounded-2xl border border-white/10 bg-[#16161a] p-4">
+                <div className="mb-2 text-sm font-medium">Playback</div>
+                <div className="text-sm text-zinc-400">
+                  Use the mini player to control play, pause, skip, seek and volume.
+                </div>
               </div>
             </div>
-            <div className="rounded-2xl bg-[#16161a] p-4">
-              <div className="mb-2 text-sm text-zinc-400">Preferiti</div>
-              <div className="space-y-2 text-sm">
-                {favItems.slice(0, 5).map((s) => <div key={s.id}>{s.title}</div>)}
-              </div>
-            </div>
-            <div className="rounded-2xl bg-[#16161a] p-4">
-              <div className="mb-2 text-sm text-zinc-400">Eliminati</div>
-              <div className="space-y-2 text-sm">
-                {deletedItems.slice(0, 5).map((s) => <div key={s.id}>{s.title}</div>)}
-              </div>
-            </div>
-          </div>
-        </main>
-
-        <aside className="rounded-3xl bg-[#111113] p-4 shadow-[0_0_30px_rgba(255,45,85,0.22)] space-y-4">
-          <div className="flex items-center gap-2 text-sm text-zinc-400">
-            <SlidersHorizontal size={16} /> Status
-          </div>
-
-          <div className="rounded-2xl bg-[#16161a] p-4 space-y-3 text-sm">
-            <div className="flex justify-between"><span>Songs</span><span>{songs.length}</span></div>
-            <div className="flex justify-between"><span>Favorites</span><span>{favItems.length}</span></div>
-            <div className="flex justify-between"><span>Deleted</span><span>{deletedItems.length}</span></div>
-          </div>
-
-          <div className="rounded-2xl bg-[#16161a] p-4 text-sm text-zinc-300">
-            Playback, EQ and favorites are all handled from the expanded mini-player.
-          </div>
-        </aside>
+          ) : null}
+        </div>
       </div>
+
+      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-[#0c0c0f]/95 backdrop-blur-xl">
+        <div className="mx-auto grid max-w-7xl grid-cols-3 gap-2 px-4 py-3">
+          <button
+            type="button"
+            onClick={() => setSection("home")}
+            className={`flex flex-col items-center justify-center rounded-2xl px-3 py-3 text-xs transition ${
+              section === "home" ? "bg-white/10 text-white" : "text-zinc-400"
+            }`}
+          >
+            <Home size={18} />
+            Home
+          </button>
+          <button
+            type="button"
+            onClick={() => setSection("files")}
+            className={`flex flex-col items-center justify-center rounded-2xl px-3 py-3 text-xs transition ${
+              section === "files" ? "bg-white/10 text-white" : "text-zinc-400"
+            }`}
+          >
+            <Folder size={18} />
+            Files
+          </button>
+          <button
+            type="button"
+            onClick={() => setSection("settings")}
+            className={`flex flex-col items-center justify-center rounded-2xl px-3 py-3 text-xs transition ${
+              section === "settings" ? "bg-white/10 text-white" : "text-zinc-400"
+            }`}
+          >
+            <Settings size={18} />
+            Settings
+          </button>
+        </div>
+      </nav>
 
       <audio
         ref={audioRef}
@@ -373,13 +603,10 @@ export default function MusicApp() {
         onPause={pauseCurrent}
         onPrev={prev}
         onNext={next}
-        onToggleFav={() => track && toggleFav(track.id)}
-        isFav={track ? favorites.includes(track.id) : false}
         videoRef={videoRef}
-        eqEnabled={eqEnabled}
-        setEqEnabled={setEqEnabled}
-        eq={eq}
-        setEq={setEq}
+        audioRef={audioRef}
+        volume={volume}
+        setVolume={setVolume}
         duration={duration}
         currentTime={currentTime}
         seekTo={seekTo}
