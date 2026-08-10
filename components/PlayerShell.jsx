@@ -101,7 +101,6 @@ export default function PlayerShell() {
   const [section, setSection] = useState("home");
   const [query, setQuery] = useState("");
   const [isPlaying, setIsPlaying] = useState(false);
-  const [volume, setVolume] = useState(0.9);
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [favorites, setFavorites] = useState([]);
@@ -130,16 +129,20 @@ export default function PlayerShell() {
     setDeleted((prev) => prev.filter((x) => !x.deletedAt || Date.now() - x.deletedAt <= TEN_DAYS));
   }, []);
 
-  useEffect(() => {
-    if (audioRef.current) audioRef.current.volume = volume;
-    if (videoRef.current) videoRef.current.volume = volume;
-  }, [volume]);
+  const getMedia = (song = track) => {
+    if (!song) return null;
+    return song.kind === "video" ? videoRef.current : audioRef.current;
+  };
 
   useEffect(() => {
-    if (!track) return;
-    const media = track.kind === "video" ? videoRef.current : audioRef.current;
-    if (media) media.src = track.src;
-  }, [track]);
+    const media = getMedia();
+    if (!media || !track) return;
+    media.src = track.src;
+    media.preload = "auto";
+    media.load();
+    setCurrentTime(0);
+    setDuration(0);
+  }, [track?.id]);
 
   const ensureAudioGraph = () => {
     if (ctxRef.current || !audioRef.current) return;
@@ -173,24 +176,15 @@ export default function PlayerShell() {
     applyEq();
   }, [eq, eqEnabled]);
 
-  const mediaForTrack = () => (track?.kind === "video" ? videoRef.current : audioRef.current);
-
-  const hardResetMedia = (media) => {
-    if (!media) return;
-    try {
-      media.pause();
-      media.currentTime = 0;
-      media.load();
-    } catch {}
-  };
-
   useEffect(() => {
-    const media = mediaForTrack();
+    const media = getMedia();
     if (!media) return;
+
     const update = () => {
       setCurrentTime(media.currentTime || 0);
       setDuration(media.duration || 0);
     };
+
     const ended = () => {
       setIsPlaying(false);
       if (mode === "loop") {
@@ -200,17 +194,19 @@ export default function PlayerShell() {
         next();
       }
     };
+
     media.addEventListener("timeupdate", update);
     media.addEventListener("loadedmetadata", update);
     media.addEventListener("durationchange", update);
     media.addEventListener("ended", ended);
+
     return () => {
       media.removeEventListener("timeupdate", update);
       media.removeEventListener("loadedmetadata", update);
       media.removeEventListener("durationchange", update);
       media.removeEventListener("ended", ended);
     };
-  }, [track, mode]);
+  }, [track?.id, mode]);
 
   const visible = useMemo(
     () => songs.filter((s) => `${s.title} ${s.artist}`.toLowerCase().includes(query.toLowerCase())),
@@ -220,7 +216,7 @@ export default function PlayerShell() {
   const orderedSongs = useMemo(() => (mode === "shuffle" ? shuffleArray(songs) : songs), [songs, mode]);
 
   const seekTo = (value) => {
-    const media = mediaForTrack();
+    const media = getMedia();
     if (!media) return;
     media.currentTime = value;
     setCurrentTime(value);
@@ -237,21 +233,38 @@ export default function PlayerShell() {
     }
   };
 
+  const resetAndAttach = (song) => {
+    const media = song.kind === "video" ? videoRef.current : audioRef.current;
+    if (!media) return null;
+    try {
+      audioRef.current?.pause();
+      videoRef.current?.pause();
+      media.pause();
+      media.currentTime = 0;
+      media.src = song.src;
+      media.preload = "auto";
+      media.load();
+    } catch {}
+    return media;
+  };
+
   const playCurrent = async () => {
     if (!track) return;
-    const media = mediaForTrack();
+    const media = getMedia(track);
     if (!media) return;
+
     if (track.kind === "audio") {
       ensureAudioGraph();
       applyEq();
     }
+
     await new Promise((r) => requestAnimationFrame(r));
     const ok = await safePlay(media);
     setIsPlaying(ok);
   };
 
   const pauseCurrent = () => {
-    const media = mediaForTrack();
+    const media = getMedia(track);
     if (!media) return;
     media.pause();
     setIsPlaying(false);
@@ -260,29 +273,34 @@ export default function PlayerShell() {
   const playTrack = async (song) => {
     const idx = songs.findIndex((x) => x.id === song.id);
     if (idx < 0) return;
-    hardResetMedia(audioRef.current);
-    hardResetMedia(videoRef.current);
+
+    const media = resetAndAttach(song);
     setCurrent(idx);
+
     await new Promise((r) => requestAnimationFrame(r));
     await new Promise((r) => setTimeout(r, 0));
-    const media = song.kind === "video" ? videoRef.current : audioRef.current;
+
     if (!media) return;
+
     if (song.kind === "audio") {
       ensureAudioGraph();
       applyEq();
     }
+
     const ok = await safePlay(media);
     setIsPlaying(ok);
   };
 
   const next = async () => {
     if (!songs.length) return;
+
     if (mode === "shuffle") {
       const others = songs.filter((s) => s.id !== track?.id);
       if (!others.length) return;
       await playTrack(others[Math.floor(Math.random() * others.length)]);
       return;
     }
+
     const idx = track ? songs.findIndex((s) => s.id === track.id) : 0;
     await playTrack(songs[(idx + 1) % songs.length]);
   };
@@ -608,8 +626,6 @@ export default function PlayerShell() {
         onToggleFav={() => track && toggleFav(track.id)}
         isFav={track ? favorites.includes(track.id) : false}
         videoRef={videoRef}
-        volume={volume}
-        setVolume={setVolume}
         duration={duration}
         currentTime={currentTime}
         seekTo={seekTo}
