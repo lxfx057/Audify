@@ -175,6 +175,15 @@ export default function PlayerShell() {
 
   const mediaForTrack = () => (track?.kind === "video" ? videoRef.current : audioRef.current);
 
+  const hardResetMedia = (media) => {
+    if (!media) return;
+    try {
+      media.pause();
+      media.currentTime = 0;
+      media.load();
+    } catch {}
+  };
+
   useEffect(() => {
     const media = mediaForTrack();
     if (!media) return;
@@ -230,15 +239,15 @@ export default function PlayerShell() {
 
   const playCurrent = async () => {
     if (!track) return;
-    if (track.kind === "video") {
-      const ok = await safePlay(videoRef.current);
-      setIsPlaying(ok);
-    } else {
+    const media = mediaForTrack();
+    if (!media) return;
+    if (track.kind === "audio") {
       ensureAudioGraph();
       applyEq();
-      const ok = await safePlay(audioRef.current);
-      setIsPlaying(ok);
     }
+    await new Promise((r) => requestAnimationFrame(r));
+    const ok = await safePlay(media);
+    setIsPlaying(ok);
   };
 
   const pauseCurrent = () => {
@@ -251,33 +260,37 @@ export default function PlayerShell() {
   const playTrack = async (song) => {
     const idx = songs.findIndex((x) => x.id === song.id);
     if (idx < 0) return;
+    hardResetMedia(audioRef.current);
+    hardResetMedia(videoRef.current);
     setCurrent(idx);
-    requestAnimationFrame(async () => {
-      if (song.kind === "audio") ensureAudioGraph();
-      const media = song.kind === "video" ? videoRef.current : audioRef.current;
-      if (media) {
-        const ok = await safePlay(media);
-        setIsPlaying(ok);
-      }
-    });
+    await new Promise((r) => requestAnimationFrame(r));
+    await new Promise((r) => setTimeout(r, 0));
+    const media = song.kind === "video" ? videoRef.current : audioRef.current;
+    if (!media) return;
+    if (song.kind === "audio") {
+      ensureAudioGraph();
+      applyEq();
+    }
+    const ok = await safePlay(media);
+    setIsPlaying(ok);
   };
 
-  const next = () => {
+  const next = async () => {
     if (!songs.length) return;
     if (mode === "shuffle") {
       const others = songs.filter((s) => s.id !== track?.id);
       if (!others.length) return;
-      playTrack(others[Math.floor(Math.random() * others.length)]);
+      await playTrack(others[Math.floor(Math.random() * others.length)]);
       return;
     }
     const idx = track ? songs.findIndex((s) => s.id === track.id) : 0;
-    playTrack(songs[(idx + 1) % songs.length]);
+    await playTrack(songs[(idx + 1) % songs.length]);
   };
 
-  const prev = () => {
+  const prev = async () => {
     if (!songs.length) return;
     const idx = track ? songs.findIndex((s) => s.id === track.id) : 0;
-    playTrack(songs[(idx - 1 + songs.length) % songs.length]);
+    await playTrack(songs[(idx - 1 + songs.length) % songs.length]);
   };
 
   const toggleFav = (id) =>
