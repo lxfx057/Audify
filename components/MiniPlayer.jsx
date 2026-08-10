@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Play,
   Pause,
   ChevronUp,
   ChevronDown,
-  Heart,
   SkipBack,
   SkipForward,
 } from "lucide-react";
@@ -25,13 +24,10 @@ export default function MiniPlayer({
   onPause,
   onPrev,
   onNext,
-  onToggleFav,
-  isFav,
   videoRef,
-  eqEnabled,
-  setEqEnabled,
-  eq,
-  setEq,
+  audioRef,
+  volume,
+  setVolume,
   duration,
   currentTime,
   seekTo,
@@ -42,93 +38,81 @@ export default function MiniPlayer({
     setExpanded(false);
   }, [track?.id]);
 
-  const isVideo = track?.kind === "video";
+  const canShow = !!track;
+
+  const title = useMemo(() => {
+    if (!track) return "No track selected";
+    return track.title || "Untitled";
+  }, [track]);
 
   return (
     <div
-      className={`fixed left-3 right-3 bottom-3 z-50 overflow-hidden rounded-3xl bg-[#111113] shadow-[0_0_30px_rgba(255,45,85,0.22)] transition-all duration-300 ${
-        expanded ? "h-[82vh]" : "h-18"
-      }`}
+      className={`fixed left-3 right-3 bottom-20 z-50 overflow-hidden rounded-3xl border border-white/10 bg-[#111113]/95 backdrop-blur-xl shadow-[0_18px_60px_rgba(0,0,0,0.45)] transition-all duration-300 ${
+        expanded ? "h-[78vh]" : "h-[76px]"
+      } ${canShow ? "translate-y-0" : "pointer-events-none opacity-0 translate-y-4"}`}
     >
-      <button
-        type="button"
-        onClick={() => setExpanded((v) => !v)}
-        className="flex w-full items-center gap-3 px-4 py-3 text-left"
-      >
-        <div className="h-12 w-12 overflow-hidden rounded-2xl bg-zinc-900 shrink-0">
+      <div className="flex h-[76px] items-center gap-3 px-4">
+        <div className="h-12 w-12 shrink-0 overflow-hidden rounded-2xl bg-[#0b1020] ring-1 ring-white/10">
           {track?.thumb ? (
             <img src={track.thumb} alt="cover" className="h-full w-full object-cover" />
           ) : (
-            <div className="flex h-full w-full items-center justify-center bg-[#0b0f1a] text-[#4ea3ff]">
+            <div className="flex h-full w-full items-center justify-center bg-[#0b1020] text-[#7db6ff]">
               <span className="text-xl">♫</span>
             </div>
           )}
         </div>
 
         <div className="min-w-0 flex-1">
-          <div className="truncate font-medium">{track?.title || "Nessun brano"}</div>
+          <div className="truncate text-sm font-medium">{title}</div>
           <div className="truncate text-xs text-zinc-400">{track?.artist || ""}</div>
         </div>
 
-        <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-          <button
-            type="button"
-            onClick={onToggleFav}
-            className="grid h-11 w-11 place-items-center rounded-full bg-zinc-800"
-          >
-            <Heart size={18} className={isFav ? "fill-pink-500 text-pink-500" : ""} />
-          </button>
-
-          <button
-            type="button"
-            onClick={isPlaying ? onPause : onPlay}
-            className="grid h-12 w-12 place-items-center rounded-full bg-pink-500 text-black"
-          >
-            {isPlaying ? <Pause size={20} /> : <Play size={20} />}
-          </button>
-
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setExpanded((v) => !v);
-            }}
-            className="grid h-11 w-11 place-items-center rounded-full bg-zinc-800 text-zinc-200"
-          >
-            {expanded ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
-          </button>
-        </div>
-      </button>
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="grid h-11 w-11 place-items-center rounded-full bg-white/5 text-white transition active:scale-95"
+          aria-label={expanded ? "Collapse player" : "Expand player"}
+        >
+          {expanded ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
+        </button>
+      </div>
 
       {expanded ? (
-        <div className="flex h-[calc(82vh-72px)] flex-col gap-4 px-4 pb-4">
-          <div className="relative flex-1 overflow-hidden rounded-3xl bg-black">
-            {isVideo ? (
+        <div className="flex h-[calc(78vh-76px)] flex-col gap-4 px-4 pb-4">
+          <div className="relative flex-1 overflow-hidden rounded-3xl border border-white/10 bg-black">
+            {track?.kind === "video" ? (
               <video
                 ref={videoRef}
-                src={track?.src}
+                src={track.src}
                 className="h-full w-full object-cover"
                 controls
                 playsInline
                 preload="metadata"
               />
             ) : (
-              <div className="flex h-full w-full items-center justify-center bg-[#0b1020]">
+              <div className="flex h-full w-full items-center justify-center bg-[#07111f]">
                 <div className="text-center">
-                  <div className="text-xs uppercase tracking-[0.35em] text-[#4ea3ff]">MP3</div>
-                  <div className="mt-3 text-2xl font-semibold text-white">{track?.title}</div>
+                  <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-3xl border border-[#244062] bg-[#0b1020] text-4xl text-[#7db6ff] shadow-[0_0_24px_rgba(125,182,255,0.2)]">
+                    ♫
+                  </div>
+                  <div className="mt-4 text-xs uppercase tracking-[0.35em] text-[#7db6ff]">
+                    Audio
+                  </div>
+                  <div className="mt-2 px-6 text-xl font-semibold text-white">
+                    {track?.title || "No track"}
+                  </div>
                 </div>
               </div>
             )}
           </div>
 
           <div>
-            <div className="text-xl font-semibold">{track?.title || "Nessun brano"}</div>
+            <div className="text-xl font-semibold">{track?.title || "No track selected"}</div>
             <div className="text-sm text-zinc-400">{track?.artist || ""}</div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <div className="w-12 text-xs text-zinc-400">{formatTime(currentTime)}</div>
+          <div className="grid grid-cols-[48px_1fr_48px] items-center gap-3">
+            <div className="text-xs text-zinc-400">{formatTime(currentTime)}</div>
             <input
               type="range"
               min="0"
@@ -137,72 +121,38 @@ export default function MiniPlayer({
               onChange={(e) => seekTo(Number(e.target.value))}
               className="w-full"
             />
-            <div className="w-12 text-right text-xs text-zinc-400">{formatTime(duration)}</div>
+            <div className="text-right text-xs text-zinc-400">{formatTime(duration)}</div>
           </div>
 
           <div className="flex items-center justify-center gap-3">
-            <button type="button" onClick={onPrev} className="grid h-12 w-12 place-items-center rounded-full bg-zinc-800">
+            <button type="button" onClick={onPrev} className="grid h-12 w-12 place-items-center rounded-full bg-white/5 transition active:scale-95">
               <SkipBack size={18} />
             </button>
 
             <button
               type="button"
               onClick={isPlaying ? onPause : onPlay}
-              className="grid h-14 w-14 place-items-center rounded-full bg-pink-500 text-black"
+              className="grid h-14 w-14 place-items-center rounded-full bg-white text-black transition active:scale-95"
             >
               {isPlaying ? <Pause size={20} /> : <Play size={20} />}
             </button>
 
-            <button type="button" onClick={onNext} className="grid h-12 w-12 place-items-center rounded-full bg-zinc-800">
+            <button type="button" onClick={onNext} className="grid h-12 w-12 place-items-center rounded-full bg-white/5 transition active:scale-95">
               <SkipForward size={18} />
             </button>
           </div>
 
-          <div className="rounded-2xl bg-[#16161a] p-4">
-            <div className="mb-3 text-sm font-medium text-zinc-300">EQ</div>
-            <button
-              type="button"
-              onClick={() => setEqEnabled((v) => !v)}
-              className="mb-4 rounded-full bg-zinc-800 px-4 py-2 text-sm"
-            >
-              {eqEnabled ? "Disable EQ" : "Enable EQ"}
-            </button>
-
-            <div className={`space-y-3 ${eqEnabled ? "" : "opacity-40 pointer-events-none"}`}>
-              <div>
-                <div className="mb-1 text-xs text-zinc-400">Bass</div>
-                <input
-                  type="range"
-                  min="-12"
-                  max="12"
-                  value={eq.bass}
-                  onChange={(e) => setEq((s) => ({ ...s, bass: Number(e.target.value) }))}
-                  className="w-full"
-                />
-              </div>
-              <div>
-                <div className="mb-1 text-xs text-zinc-400">Mid</div>
-                <input
-                  type="range"
-                  min="-12"
-                  max="12"
-                  value={eq.mid}
-                  onChange={(e) => setEq((s) => ({ ...s, mid: Number(e.target.value) }))}
-                  className="w-full"
-                />
-              </div>
-              <div>
-                <div className="mb-1 text-xs text-zinc-400">Treble</div>
-                <input
-                  type="range"
-                  min="-12"
-                  max="12"
-                  value={eq.treble}
-                  onChange={(e) => setEq((s) => ({ ...s, treble: Number(e.target.value) }))}
-                  className="w-full"
-                />
-              </div>
-            </div>
+          <div className="rounded-2xl border border-white/10 bg-[#16161a] p-4">
+            <div className="mb-3 text-sm font-medium text-zinc-300">Volume</div>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              value={volume}
+              onChange={(e) => setVolume(Number(e.target.value))}
+              className="w-full"
+            />
           </div>
         </div>
       ) : null}
