@@ -4,19 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Heart, Search, Trash2, Music2, LibraryBig, Upload, SlidersHorizontal } from "lucide-react";
 import MiniPlayer from "./MiniPlayer";
 
-const gradientSets = [
-  ["#ff2d55", "#1d4ed8"],
-  ["#8b5cf6", "#ec4899"],
-  ["#0f172a", "#22c55e"],
-  ["#111827", "#f59e0b"],
-  ["#1e1b4b", "#06b6d4"],
-  ["#3f3f46", "#ef4444"],
-];
-
-const randomGradient = () => {
-  const g = gradientSets[Math.floor(Math.random() * gradientSets.length)];
-  return `radial-gradient(circle at top left, ${g[0]}, ${g[1]})`;
-};
+const randomGradient = () => "radial-gradient(circle at top left, #0b1020, #050816 55%, #02040a 100%)";
 
 function isVideoFile(file) {
   const name = file.name.toLowerCase();
@@ -61,11 +49,6 @@ async function extractVideoThumbnail(file) {
       resolve(null);
     });
   });
-}
-
-function formatTime(sec) {
-  if (!Number.isFinite(sec) || sec < 0) return 0;
-  return sec;
 }
 
 export default function MusicApp() {
@@ -133,8 +116,15 @@ export default function MusicApp() {
     if (idx >= 0) setCurrent(idx);
   };
 
+  const syncMedia = () => {
+    if (!track) return;
+    if (track.kind === "audio" && audioRef.current) audioRef.current.src = track.src;
+    if (track.kind === "video" && videoRef.current) videoRef.current.src = track.src;
+  };
+
   const playCurrent = async () => {
     if (!track) return;
+    syncMedia();
     try {
       if (track.kind === "video") {
         await videoRef.current.play();
@@ -223,9 +213,7 @@ export default function MusicApp() {
   };
 
   useEffect(() => {
-    if (!track) return;
-    if (track.kind === "audio" && audioRef.current) audioRef.current.src = track.src;
-    if (track.kind === "video" && videoRef.current) videoRef.current.src = track.src;
+    syncMedia();
   }, [track]);
 
   useEffect(() => {
@@ -255,9 +243,9 @@ export default function MusicApp() {
   const deletedItems = songs.filter((s) => deleted.includes(s.id));
 
   return (
-    <div className="min-h-screen bg-bg text-white p-4 md:p-6 pb-28">
+    <div className="min-h-screen bg-[#09090b] text-white p-4 md:p-6 pb-28">
       <div className="mx-auto max-w-7xl grid gap-4 lg:grid-cols-[280px_1fr_320px]">
-        <aside className="rounded-3xl bg-panel p-4 shadow-glow">
+        <aside className="rounded-3xl bg-[#111113] p-4 shadow-[0_0_30px_rgba(255,45,85,0.22)]">
           <div className="flex items-center gap-3 mb-6">
             <Music2 className="text-pink-500" />
             <div>
@@ -267,20 +255,20 @@ export default function MusicApp() {
           </div>
 
           <div className="space-y-2 text-sm">
-            <div className="rounded-2xl bg-panel2 px-4 py-3 flex items-center gap-3">
+            <div className="rounded-2xl bg-[#16161a] px-4 py-3 flex items-center gap-3">
               <LibraryBig size={16} className="text-pink-500" /> Recenti
             </div>
-            <div className="rounded-2xl bg-panel2 px-4 py-3 flex items-center gap-3">
+            <div className="rounded-2xl bg-[#16161a] px-4 py-3 flex items-center gap-3">
               <Heart size={16} className="text-pink-500" /> Preferiti
             </div>
-            <div className="rounded-2xl bg-panel2 px-4 py-3 flex items-center gap-3">
+            <div className="rounded-2xl bg-[#16161a] px-4 py-3 flex items-center gap-3">
               <Trash2 size={16} className="text-pink-500" /> Eliminati
             </div>
           </div>
 
           <label className="mt-6 flex min-h-[52px] cursor-pointer items-center justify-center gap-2 rounded-2xl border border-zinc-800 px-4 py-3 text-sm active:scale-[0.99]">
             <Upload size={16} />
-            Importa file
+            Import file
             <input
               type="file"
               multiple
@@ -291,28 +279,28 @@ export default function MusicApp() {
           </label>
         </aside>
 
-        <main className="rounded-3xl bg-panel p-4 md:p-6 shadow-glow">
-          <div className="flex items-center gap-3 rounded-2xl bg-panel2 px-4 py-3 mb-5">
+        <main className="rounded-3xl bg-[#111113] p-4 md:p-6 shadow-[0_0_30px_rgba(255,45,85,0.22)]">
+          <div className="flex items-center gap-3 rounded-2xl bg-[#16161a] px-4 py-3 mb-5">
             <Search size={16} className="text-zinc-400 shrink-0" />
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Cerca canzoni, album, artista"
+              placeholder="Search songs, albums, artist"
               className="w-full bg-transparent outline-none"
             />
           </div>
 
           <div className="mb-4 flex flex-wrap gap-2">
-            <button onClick={() => setQueueMode("upload")} className={`rounded-full px-4 py-2 text-sm ${queueMode === "upload" ? "bg-pink-500 text-black" : "bg-zinc-800"}`}>Personalizzato</button>
-            <button onClick={() => setQueueMode("alpha")} className={`rounded-full px-4 py-2 text-sm ${queueMode === "alpha" ? "bg-pink-500 text-black" : "bg-zinc-800"}`}>Alfabetico</button>
-            <button onClick={() => setQueueMode("random")} className={`rounded-full px-4 py-2 text-sm ${queueMode === "random" ? "bg-pink-500 text-black" : "bg-zinc-800"}`}>Casuale</button>
+            <button onClick={() => setQueueMode("upload")} className={`rounded-full px-4 py-2 text-sm ${queueMode === "upload" ? "bg-pink-500 text-black" : "bg-zinc-800"}`}>Custom</button>
+            <button onClick={() => setQueueMode("alpha")} className={`rounded-full px-4 py-2 text-sm ${queueMode === "alpha" ? "bg-pink-500 text-black" : "bg-zinc-800"}`}>Alphabetical</button>
+            <button onClick={() => setQueueMode("random")} className={`rounded-full px-4 py-2 text-sm ${queueMode === "random" ? "bg-pink-500 text-black" : "bg-zinc-800"}`}>Random</button>
           </div>
 
-          <div className="space-y-3">
+          <div className="space-y-3 max-h-[56vh] overflow-auto pr-1">
             {visible.map((s) => (
               <div
                 key={s.id}
-                className={`rounded-2xl border ${track?.id === s.id ? "border-pink-500 bg-zinc-900" : "border-zinc-800 bg-panel2"} p-4 flex items-center gap-3`}
+                className={`rounded-2xl border ${track?.id === s.id ? "border-pink-500 bg-zinc-900" : "border-zinc-800 bg-[#16161a]"} p-4 flex items-center gap-3`}
               >
                 <button onClick={() => setTrackById(s.id)} className="flex-1 min-h-[52px] text-left">
                   <div className="font-medium">{s.title}</div>
@@ -331,19 +319,19 @@ export default function MusicApp() {
           </div>
 
           <div className="mt-6 grid gap-3 md:grid-cols-3">
-            <div className="rounded-2xl bg-panel2 p-4">
+            <div className="rounded-2xl bg-[#16161a] p-4">
               <div className="mb-2 text-sm text-zinc-400">Recenti</div>
               <div className="space-y-2 text-sm">
                 {recentItems.slice(0, 5).map((s) => <div key={s.id}>{s.title}</div>)}
               </div>
             </div>
-            <div className="rounded-2xl bg-panel2 p-4">
+            <div className="rounded-2xl bg-[#16161a] p-4">
               <div className="mb-2 text-sm text-zinc-400">Preferiti</div>
               <div className="space-y-2 text-sm">
                 {favItems.slice(0, 5).map((s) => <div key={s.id}>{s.title}</div>)}
               </div>
             </div>
-            <div className="rounded-2xl bg-panel2 p-4">
+            <div className="rounded-2xl bg-[#16161a] p-4">
               <div className="mb-2 text-sm text-zinc-400">Eliminati</div>
               <div className="space-y-2 text-sm">
                 {deletedItems.slice(0, 5).map((s) => <div key={s.id}>{s.title}</div>)}
@@ -352,22 +340,31 @@ export default function MusicApp() {
           </div>
         </main>
 
-        <aside className="rounded-3xl bg-panel p-4 shadow-glow space-y-4">
+        <aside className="rounded-3xl bg-[#111113] p-4 shadow-[0_0_30px_rgba(255,45,85,0.22)] space-y-4">
           <div className="flex items-center gap-2 text-sm text-zinc-400">
-            <SlidersHorizontal size={16} /> Stato
+            <SlidersHorizontal size={16} /> Status
           </div>
 
-          <div className="rounded-2xl bg-panel2 p-4 space-y-3 text-sm">
-            <div className="flex justify-between"><span>Brani</span><span>{songs.length}</span></div>
-            <div className="flex justify-between"><span>Preferiti</span><span>{favItems.length}</span></div>
-            <div className="flex justify-between"><span>Eliminati</span><span>{deletedItems.length}</span></div>
+          <div className="rounded-2xl bg-[#16161a] p-4 space-y-3 text-sm">
+            <div className="flex justify-between"><span>Songs</span><span>{songs.length}</span></div>
+            <div className="flex justify-between"><span>Favorites</span><span>{favItems.length}</span></div>
+            <div className="flex justify-between"><span>Deleted</span><span>{deletedItems.length}</span></div>
           </div>
 
-          <div className="rounded-2xl bg-panel2 p-4 text-sm text-zinc-300">
-            Tutto il controllo principale è nel mini-player espanso.
+          <div className="rounded-2xl bg-[#16161a] p-4 text-sm text-zinc-300">
+            Playback, EQ and favorites are all handled from the expanded mini-player.
           </div>
         </aside>
       </div>
+
+      <audio
+        ref={audioRef}
+        className="hidden"
+        onEnded={() => {
+          setIsPlaying(false);
+          next();
+        }}
+      />
 
       <MiniPlayer
         track={track}
@@ -383,8 +380,8 @@ export default function MusicApp() {
         setEqEnabled={setEqEnabled}
         eq={eq}
         setEq={setEq}
-        duration={formatTime(duration)}
-        currentTime={formatTime(currentTime)}
+        duration={duration}
+        currentTime={currentTime}
         seekTo={seekTo}
       />
     </div>
