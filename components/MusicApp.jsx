@@ -9,10 +9,11 @@ import {
   Search,
   Upload,
   PlayCircle,
-  Shield,
-  LogIn,
   Music2,
-  LibraryBig,
+  Heart,
+  Shuffle,
+  Repeat,
+  Play,
 } from "lucide-react";
 import MiniPlayer from "./MiniPlayer";
 
@@ -23,14 +24,6 @@ const STORE = "tracks";
 function isVideoFile(file) {
   const name = file.name.toLowerCase();
   return file.type.startsWith("video/") || name.endsWith(".mp4") || name.endsWith(".m4v");
-}
-
-function randomCover() {
-  return {
-    type: "mp3",
-    color: "#0b1020",
-    accent: "#7db6ff",
-  };
 }
 
 async function extractVideoThumbnail(file) {
@@ -89,8 +82,7 @@ async function dbGetAll() {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE, "readonly");
-    const store = tx.objectStore(STORE);
-    const req = store.getAll();
+    const req = tx.objectStore(STORE).getAll();
     req.onsuccess = () => resolve(req.result || []);
     req.onerror = () => reject(req.error);
   });
@@ -106,14 +98,12 @@ async function dbPut(item) {
   });
 }
 
-async function dbDelete(id) {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, "readwrite");
-    tx.objectStore(STORE).delete(id);
-    tx.oncomplete = () => resolve(true);
-    tx.onerror = () => reject(tx.error);
-  });
+function randomCover() {
+  return "linear-gradient(135deg, #0b1020 0%, #07111f 55%, #02040a 100%)";
+}
+
+function shuffleArray(list) {
+  return [...list].sort(() => Math.random() - 0.5);
 }
 
 export default function MusicApp() {
@@ -127,12 +117,13 @@ export default function MusicApp() {
   const [volume, setVolume] = useState(0.9);
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
+  const [favorites, setFavorites] = useState([]);
+  const [mode, setMode] = useState("normal");
+  const [eqEnabled, setEqEnabled] = useState(true);
+  const [eq, setEq] = useState({ bass: 0, mid: 0, treble: 0 });
 
   const audioRef = useRef(null);
   const videoRef = useRef(null);
-  const [authed, setAuthed] = useState(false);
-  const [eqEnabled, setEqEnabled] = useState(true);
-  const [eq, setEq] = useState({ bass: 0, mid: 0, treble: 0 });
   const ctxRef = useRef(null);
   const nodesRef = useRef(null);
 
@@ -215,6 +206,11 @@ export default function MusicApp() {
     return songs.filter((s) => `${s.title} ${s.artist}`.toLowerCase().includes(query.toLowerCase()));
   }, [songs, query]);
 
+  const orderList = useMemo(() => {
+    if (mode === "shuffle") return shuffleArray(songs);
+    return songs;
+  }, [songs, mode]);
+
   const playCurrent = async () => {
     if (!track) return;
     try {
@@ -245,6 +241,27 @@ export default function MusicApp() {
 
   const next = () => {
     if (!songs.length) return;
+
+    if (mode === "loop" && track) {
+      const media = track.kind === "video" ? videoRef.current : audioRef.current;
+      if (media) {
+        media.currentTime = 0;
+        media.play?.();
+        setIsPlaying(true);
+      }
+      return;
+    }
+
+    if (mode === "shuffle") {
+      const choices = songs.filter((s) => s.id !== track?.id);
+      if (!choices.length) return;
+      const pick = choices[Math.floor(Math.random() * choices.length)];
+      const idx = songs.findIndex((s) => s.id === pick.id);
+      setCurrent(idx);
+      setIsPlaying(false);
+      return;
+    }
+
     setCurrent((c) => (c + 1) % songs.length);
     setIsPlaying(false);
   };
@@ -254,6 +271,9 @@ export default function MusicApp() {
     setCurrent((c) => (c - 1 + songs.length) % songs.length);
     setIsPlaying(false);
   };
+
+  const toggleFav = (id) =>
+    setFavorites((f) => (f.includes(id) ? f.filter((x) => x !== id) : [...f, id]));
 
   const addFiles = async (files) => {
     const valid = Array.from(files || []).filter((file) => {
@@ -277,7 +297,6 @@ export default function MusicApp() {
         thumb,
         deleted: false,
         createdAt: Date.now(),
-        volume: 1,
       };
       await dbPut(item);
       created.push(item);
@@ -286,6 +305,7 @@ export default function MusicApp() {
     if (created.length) {
       setSongs((prev) => [...created, ...prev]);
       setCurrent(0);
+      setSection("home");
     }
   };
 
@@ -313,18 +333,21 @@ export default function MusicApp() {
     setSongs((prev) => [updated, ...prev]);
   };
 
-  const activeSection = section === "home" ? "home" : section === "files" ? "files" : "settings";
+  const activeSection = section;
 
-  const trackList = activeSection === "files" ? deleted : songs;
+  const openTrack = (s) => {
+    const idx = songs.findIndex((x) => x.id === s.id);
+    if (idx >= 0) setCurrent(idx);
+  };
 
-  const activeItems = loaded ? visible : [];
+  const deleteCount = deleted.length;
 
   return (
-    <div className="min-h-screen bg-[#09090b] text-white pb-36">
+    <div className="min-h-screen bg-[#09090b] text-white pb-40">
       <div className="mx-auto max-w-7xl px-4 pt-4">
         <div className="rounded-[28px] border border-white/10 bg-[#111113] p-4 shadow-[0_18px_60px_rgba(0,0,0,0.38)]">
           {activeSection === "home" ? (
-            <div className="space-y-4">
+            <div className="space-y-4 animate-[fadeIn_.25s_ease-out]">
               <div className="flex items-center gap-3">
                 <div className="grid h-12 w-12 place-items-center rounded-2xl bg-white/5 text-[#7db6ff]">
                   <Music2 />
@@ -350,7 +373,7 @@ export default function MusicApp() {
               <div className="grid gap-3 md:grid-cols-2">
                 {[
                   ["All tracks", songs.length],
-                  ["Deleted", deleted.length],
+                  ["Deleted", deleteCount],
                 ].map(([label, count]) => (
                   <div key={label} className="rounded-2xl border border-white/10 bg-[#16161a] p-4">
                     <div className="text-sm text-zinc-400">{label}</div>
@@ -371,37 +394,59 @@ export default function MusicApp() {
                 />
               </div>
 
-              <div className="space-y-3">
-                {activeItems.map((s) => (
-                  <button
+              <div className="space-y-3 max-h-[52vh] overflow-auto pr-1">
+                {(query ? visible : orderList).map((s) => (
+                  <div
                     key={s.id}
-                    type="button"
-                    onClick={() => {
-                      const idx = songs.findIndex((x) => x.id === s.id);
-                      if (idx >= 0) setCurrent(idx);
-                    }}
-                    className="flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-[#16161a] px-4 py-3 text-left transition hover:bg-white/5 active:scale-[0.99]"
+                    className={`group flex items-center gap-3 rounded-2xl border border-white/10 bg-[#16161a] px-4 py-3 transition hover:bg-white/[0.04] ${
+                      track?.id === s.id ? "ring-1 ring-white/15" : ""
+                    }`}
                   >
-                    <div className="h-12 w-12 overflow-hidden rounded-2xl bg-[#0b1020]">
-                      {s.kind === "video" && s.thumb ? (
-                        <img src={s.thumb} className="h-full w-full object-cover" alt="" />
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center text-[#7db6ff]">♫</div>
-                      )}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate font-medium">{s.title}</div>
-                      <div className="truncate text-sm text-zinc-400">{s.artist}</div>
-                    </div>
-                    <PlayCircle size={18} className="text-white/60" />
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => openTrack(s)}
+                      className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                    >
+                      <div className="h-12 w-12 overflow-hidden rounded-2xl bg-[#0b1020]">
+                        {s.kind === "video" && s.thumb ? (
+                          <img src={s.thumb} className="h-full w-full object-cover" alt="" />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center text-[#7db6ff]">♫</div>
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="truncate font-medium">{s.title}</div>
+                        <div className="truncate text-sm text-zinc-400">{s.artist}</div>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => toggleFav(s.id)}
+                      className={`grid h-11 w-11 place-items-center rounded-full transition active:scale-95 ${
+                        favorites.includes(s.id) ? "bg-white/10 text-white" : "bg-white/5 text-zinc-300"
+                      }`}
+                      aria-label="Favorite"
+                    >
+                      <Heart size={16} className={favorites.includes(s.id) ? "fill-white text-white" : ""} />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => removeSong(s.id)}
+                      className="grid h-11 w-11 place-items-center rounded-full bg-white/5 transition active:scale-95"
+                      aria-label="Delete"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
                 ))}
               </div>
             </div>
           ) : null}
 
           {activeSection === "files" ? (
-            <div className="space-y-4">
+            <div className="space-y-4 animate-[fadeIn_.25s_ease-out]">
               <div className="flex items-center gap-3">
                 <div className="grid h-12 w-12 place-items-center rounded-2xl bg-white/5 text-[#7db6ff]">
                   <Folder />
@@ -413,32 +458,6 @@ export default function MusicApp() {
               </div>
 
               <div className="space-y-3">
-                {deleted.map((s) => (
-                  <div
-                    key={s.id}
-                    className="flex items-center gap-3 rounded-2xl border border-white/10 bg-[#16161a] px-4 py-3"
-                  >
-                    <div className="h-12 w-12 overflow-hidden rounded-2xl bg-[#0b1020]">
-                      {s.kind === "video" && s.thumb ? (
-                        <img src={s.thumb} className="h-full w-full object-cover" alt="" />
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center text-[#7db6ff]">♫</div>
-                      )}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate font-medium">{s.title}</div>
-                      <div className="truncate text-sm text-zinc-400">Deleted</div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => restoreSong(s.id)}
-                      className="rounded-full bg-white/5 px-4 py-2 text-sm transition active:scale-[0.99]"
-                    >
-                      Restore
-                    </button>
-                  </div>
-                ))}
-
                 {songs.map((s) => (
                   <div
                     key={s.id}
@@ -458,7 +477,7 @@ export default function MusicApp() {
                     <button
                       type="button"
                       onClick={() => removeSong(s.id)}
-                      className="grid h-11 w-11 place-items-center rounded-full bg-white/5 transition active:scale-[0.99]"
+                      className="grid h-11 w-11 place-items-center rounded-full bg-white/5 transition active:scale-95"
                     >
                       <Trash2 size={16} />
                     </button>
@@ -469,29 +488,14 @@ export default function MusicApp() {
           ) : null}
 
           {activeSection === "settings" ? (
-            <div className="space-y-4">
+            <div className="space-y-4 animate-[fadeIn_.25s_ease-out]">
               <div className="flex items-center gap-3">
                 <div className="grid h-12 w-12 place-items-center rounded-2xl bg-white/5 text-[#7db6ff]">
                   <Settings />
                 </div>
                 <div>
                   <div className="text-lg font-semibold">Settings</div>
-                  <div className="text-sm text-zinc-400">Equalizer, playback and login</div>
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-white/10 bg-[#16161a] p-4">
-                <div className="mb-3 text-sm font-medium">Login</div>
-                <button
-                  type="button"
-                  onClick={() => setAuthed((v) => !v)}
-                  className="flex items-center gap-2 rounded-xl bg-white/5 px-4 py-3 transition active:scale-[0.99]"
-                >
-                  <LogIn size={16} />
-                  {authed ? "Logout" : "Login"}
-                </button>
-                <div className="mt-2 text-sm text-zinc-400">
-                  {authed ? "Connected" : "Not connected"}
+                  <div className="text-sm text-zinc-400">Equalizer and playback</div>
                 </div>
               </div>
 
@@ -538,13 +542,6 @@ export default function MusicApp() {
                       className="w-full"
                     />
                   </div>
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-white/10 bg-[#16161a] p-4">
-                <div className="mb-2 text-sm font-medium">Playback</div>
-                <div className="text-sm text-zinc-400">
-                  Use the mini player to control play, pause, skip, seek and volume.
                 </div>
               </div>
             </div>
@@ -603,6 +600,8 @@ export default function MusicApp() {
         onPause={pauseCurrent}
         onPrev={prev}
         onNext={next}
+        onToggleFav={() => track && toggleFav(track.id)}
+        isFav={track ? favorites.includes(track.id) : false}
         videoRef={videoRef}
         audioRef={audioRef}
         volume={volume}
@@ -610,6 +609,8 @@ export default function MusicApp() {
         duration={duration}
         currentTime={currentTime}
         seekTo={seekTo}
+        mode={mode}
+        setMode={setMode}
       />
     </div>
   );
