@@ -1,8 +1,8 @@
 import "../styles/globals.css";
 
 export const metadata = {
-  title: "Music Spotlight",
-  description: "Dark music player with queue, favorites and effects",
+  title: "Music Cloud",
+  description: "Local music player with equalizer and trash recovery",
 };
 
 export default function RootLayout({ children }) {
