@@ -1,5 +1,5 @@
-import MusicApp from "../components/MusicApp";
+import PlayerShell from "../components/PlayerShell";
 
 export default function Page() {
-  return <MusicApp />;
+  return <PlayerShell />;
 }
