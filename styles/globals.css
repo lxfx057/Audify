@@ -11,6 +11,7 @@
 }
 
 html {
+  min-height: 100%;
   background: #09090b;
 }
 
@@ -77,4 +78,14 @@ input[type="range"] {
 
 .eq-real-slider:disabled {
   cursor: not-allowed;
+}
+
+@media (max-width: 380px) {
+  .eq-real-slider::-webkit-slider-thumb {
+    width: 34px;
+  }
+
+  .eq-real-slider::-moz-range-thumb {
+    width: 34px;
+  }
 }
