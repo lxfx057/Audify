@@ -42,3 +42,23 @@ input[type="range"] {
     min-height: 44px;
   }
 }
+.eq-vertical-slider {
+  appearance: slider-vertical;
+  -webkit-appearance: slider-vertical;
+  writing-mode: vertical-lr;
+  direction: rtl;
+  background: transparent;
+  accent-color: #7db6ff;
+  opacity: 0;
+  touch-action: none;
+}
+
+.eq-vertical-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.eq-vertical-slider::-moz-range-thumb {
+  border: 0;
+  background: transparent;
+}
