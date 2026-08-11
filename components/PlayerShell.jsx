@@ -1,590 +1,822 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Home, Folder, Settings, Trash2, Search, Upload, Music2, Heart } from "lucide-react";
+import {
+  Folder,
+  Heart,
+  Home,
+  Music2,
+  Search,
+  Settings,
+  Trash2,
+  Upload,
+} from "lucide-react";
 import MiniPlayer from "./MiniPlayer";
 
-const DB_NAME = "audify-db";
-const DB_VERSION = 1;
-const STORE = "tracks";
-const TEN_DAYS = 10 * 24 * 60 * 60 * 1000;
+const DATABASE_NAME = "audify-library";
+const DATABASE_VERSION = 2;
+const TRACK_STORE = "tracks";
+const FAVORITES_KEY = "audify-favorites";
+const TEN_DAYS_MS = 10 * 24 * 60 * 60 * 1000;
 
 const EQ_BANDS = [
-  { label: "60", freq: 60 },
-  { label: "170", freq: 170 },
-  { label: "310", freq: 310 },
-  { label: "600", freq: 600 },
-  { label: "1K", freq: 1000 },
-  { label: "3K", freq: 3000 },
-  { label: "6K", freq: 6000 },
+  { label: "60 Hz", frequency: 60 },
+  { label: "170 Hz", frequency: 170 },
+  { label: "310 Hz", frequency: 310 },
+  { label: "600 Hz", frequency: 600 },
+  { label: "1 kHz", frequency: 1000 },
+  { label: "3 kHz", frequency: 3000 },
+  { label: "6 kHz", frequency: 6000 },
 ];
 
-function isVideoFile(file) {
-  const name = file.name.toLowerCase();
-  return file.type.startsWith("video/") || name.endsWith(".mp4") || name.endsWith(".m4v");
+function openDatabase() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DATABASE_NAME, DATABASE_VERSION);
+
+    request.onupgradeneeded = () => {
+      const database = request.result;
+
+      if (!database.objectStoreNames.contains(TRACK_STORE)) {
+        database.createObjectStore(TRACK_STORE, { keyPath: "id" });
+      }
+    };
+
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
 }
 
-async function extractVideoThumbnail(file) {
+async function getSavedTracks() {
+  const database = await openDatabase();
+
+  return new Promise((resolve, reject) => {
+    const transaction = database.transaction(TRACK_STORE, "readonly");
+    const request = transaction.objectStore(TRACK_STORE).getAll();
+
+    request.onsuccess = () => resolve(request.result || []);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function saveTrack(track) {
+  const database = await openDatabase();
+
+  return new Promise((resolve, reject) => {
+    const transaction = database.transaction(TRACK_STORE, "readwrite");
+    transaction.objectStore(TRACK_STORE).put(track);
+
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+  });
+}
+
+async function deleteTrackFromDatabase(id) {
+  const database = await openDatabase();
+
+  return new Promise((resolve, reject) => {
+    const transaction = database.transaction(TRACK_STORE, "readwrite");
+    transaction.objectStore(TRACK_STORE).delete(id);
+
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+  });
+}
+
+function getKind(file) {
+  const filename = file.name.toLowerCase();
+
+  if (
+    file.type.startsWith("video/") ||
+    filename.endsWith(".mp4") ||
+    filename.endsWith(".m4v")
+  ) {
+    return "video";
+  }
+
+  return "audio";
+}
+
+function createTrackFromRecord(record) {
+  return {
+    ...record,
+    url: URL.createObjectURL(record.file),
+  };
+}
+
+function releaseTrackUrl(track) {
+  if (track?.url?.startsWith("blob:")) {
+    URL.revokeObjectURL(track.url);
+  }
+}
+
+async function createVideoThumbnail(file) {
   return new Promise((resolve) => {
-    const url = URL.createObjectURL(file);
-    const v = document.createElement("video");
-    v.src = url;
-    v.preload = "metadata";
-    v.muted = true;
-    v.playsInline = true;
-    const cleanup = () => URL.revokeObjectURL(url);
-    v.addEventListener("loadeddata", () => {
-      v.currentTime = Math.min(0.5, Math.max(0, (v.duration || 1) / 10));
+    const video = document.createElement("video");
+    const temporaryUrl = URL.createObjectURL(file);
+
+    const cleanup = () => {
+      URL.revokeObjectURL(temporaryUrl);
+      video.remove();
+    };
+
+    video.src = temporaryUrl;
+    video.preload = "metadata";
+    video.muted = true;
+    video.playsInline = true;
+
+    video.addEventListener("loadeddata", () => {
+      video.currentTime = Math.min(0.2, Math.max(0, video.duration / 10));
     });
-    v.addEventListener("seeked", () => {
+
+    video.addEventListener("seeked", () => {
       try {
-        const c = document.createElement("canvas");
-        c.width = v.videoWidth || 720;
-        c.height = v.videoHeight || 720;
-        const ctx = c.getContext("2d");
-        ctx.drawImage(v, 0, 0, c.width, c.height);
-        const dataUrl = c.toDataURL("image/jpeg", 0.9);
+        const canvas = document.createElement("canvas");
+        canvas.width = video.videoWidth || 720;
+        canvas.height = video.videoHeight || 720;
+
+        const context = canvas.getContext("2d");
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        const thumbnail = canvas.toDataURL("image/jpeg", 0.82);
         cleanup();
-        resolve(dataUrl);
+        resolve(thumbnail);
       } catch {
         cleanup();
         resolve(null);
       }
     });
-    v.addEventListener("error", () => {
+
+    video.addEventListener("error", () => {
       cleanup();
       resolve(null);
     });
   });
 }
 
-function openDB() {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: "id" });
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-async function dbGetAll() {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, "readonly");
-    const req = tx.objectStore(STORE).getAll();
-    req.onsuccess = () => resolve(req.result || []);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-async function dbPut(item) {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, "readwrite");
-    tx.objectStore(STORE).put(item);
-    tx.oncomplete = () => resolve(true);
-    tx.onerror = () => reject(tx.error);
-  });
-}
-
-function shuffleArray(list) {
-  return [...list].sort(() => Math.random() - 0.5);
+function formatDate(timestamp) {
+  if (!timestamp) return "";
+  return new Intl.DateTimeFormat("it-IT", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(new Date(timestamp));
 }
 
 export default function PlayerShell() {
-  const [songs, setSongs] = useState([]);
-  const [deleted, setDeleted] = useState([]);
-  const [current, setCurrent] = useState(0);
+  const [tracks, setTracks] = useState([]);
+  const [deletedTracks, setDeletedTracks] = useState([]);
+  const [activeTrackId, setActiveTrackId] = useState(null);
   const [section, setSection] = useState("home");
-  const [query, setQuery] = useState("");
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [duration, setDuration] = useState(0);
-  const [currentTime, setCurrentTime] = useState(0);
+  const [searchText, setSearchText] = useState("");
   const [favorites, setFavorites] = useState([]);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
   const [mode, setMode] = useState("normal");
   const [eqEnabled, setEqEnabled] = useState(true);
-  const [eq, setEq] = useState(Array(7).fill(0));
+  const [eqValues, setEqValues] = useState(Array(7).fill(0));
+  const [ready, setReady] = useState(false);
 
   const audioRef = useRef(null);
-  const videoRef = useRef(null);
-  const ctxRef = useRef(null);
-  const nodesRef = useRef(null);
+  const audioContextRef = useRef(null);
+  const audioFiltersRef = useRef([]);
+  const trackMapRef = useRef(new Map());
+  const activeTrackIdRef = useRef(null);
+  const modeRef = useRef("normal");
+  const tracksRef = useRef([]);
 
-  const track = songs[current] || null;
+  const activeTrack = useMemo(
+    () => tracks.find((track) => track.id === activeTrackId) || null,
+    [tracks, activeTrackId]
+  );
+
+  const filteredTracks = useMemo(() => {
+    const term = searchText.trim().toLowerCase();
+
+    if (!term) return tracks;
+
+    return tracks.filter((track) =>
+      `${track.title} ${track.artist}`.toLowerCase().includes(term)
+    );
+  }, [tracks, searchText]);
 
   useEffect(() => {
-    (async () => {
+    activeTrackIdRef.current = activeTrackId;
+  }, [activeTrackId]);
+
+  useEffect(() => {
+    modeRef.current = mode;
+  }, [mode]);
+
+  useEffect(() => {
+    tracksRef.current = tracks;
+  }, [tracks]);
+
+  useEffect(() => {
+    try {
+      const savedFavorites = JSON.parse(localStorage.getItem(FAVORITES_KEY) || "[]");
+      if (Array.isArray(savedFavorites)) setFavorites(savedFavorites);
+    } catch {
+      setFavorites([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites));
+  }, [favorites]);
+
+  useEffect(() => {
+    let alive = true;
+
+    const loadLibrary = async () => {
       try {
-        const stored = await dbGetAll();
-        setSongs(stored.filter((x) => !x.deleted));
-        setDeleted(stored.filter((x) => x.deleted));
-      } catch {}
-    })();
-  }, []);
+        const records = await getSavedTracks();
+        const now = Date.now();
 
-  useEffect(() => {
-    setDeleted((prev) => prev.filter((x) => !x.deletedAt || Date.now() - x.deletedAt <= TEN_DAYS));
-  }, []);
+        const activeRecords = [];
+        const deletedRecords = [];
 
-  const getMedia = (song = track) => {
-    if (!song) return null;
-    return song.kind === "video" ? videoRef.current : audioRef.current;
-  };
+        for (const record of records) {
+          if (record.deletedAt && now - record.deletedAt > TEN_DAYS_MS) {
+            await deleteTrackFromDatabase(record.id);
+            continue;
+          }
 
-  useEffect(() => {
-    const media = getMedia();
-    if (!media || !track) return;
-    media.src = track.src;
-    media.preload = "auto";
-    media.load();
-    setCurrentTime(0);
-    setDuration(0);
-  }, [track?.id]);
+          const track = createTrackFromRecord(record);
 
-  const ensureAudioGraph = () => {
-    if (ctxRef.current || !audioRef.current) return;
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const source = ctx.createMediaElementSource(audioRef.current);
-    const frequencies = [60, 170, 310, 600, 1000, 3000, 6000];
-    const filters = frequencies.map((freq, index) => {
-      const f = ctx.createBiquadFilter();
-      if (index === 0) f.type = "lowshelf";
-      else if (index === frequencies.length - 1) f.type = "highshelf";
-      else f.type = "peaking";
-      f.frequency.value = freq;
-      if (f.type === "peaking") f.Q.value = 1.1;
-      return f;
-    });
-    source.connect(filters[0]);
-    for (let i = 0; i < filters.length - 1; i++) filters[i].connect(filters[i + 1]);
-    filters[filters.length - 1].connect(ctx.destination);
-    ctxRef.current = ctx;
-    nodesRef.current = filters;
-  };
+          if (track.deletedAt) deletedRecords.push(track);
+          else activeRecords.push(track);
+        }
 
-  const applyEq = () => {
-    if (!nodesRef.current) return;
-    nodesRef.current.forEach((node, i) => {
-      node.gain.value = eqEnabled ? eq[i] : 0;
-    });
-  };
+        if (!alive) {
+          [...activeRecords, ...deletedRecords].forEach(releaseTrackUrl);
+          return;
+        }
 
-  useEffect(() => {
-    applyEq();
-  }, [eq, eqEnabled]);
+        trackMapRef.current = new Map(
+          [...activeRecords, ...deletedRecords].map((track) => [track.id, track])
+        );
 
-  useEffect(() => {
-    const media = getMedia();
-    if (!media) return;
-
-    const update = () => {
-      setCurrentTime(media.currentTime || 0);
-      setDuration(media.duration || 0);
-    };
-
-    const ended = () => {
-      setIsPlaying(false);
-      if (mode === "loop") {
-        media.currentTime = 0;
-        safePlay(media).then((ok) => setIsPlaying(ok));
-      } else {
-        next();
+        setTracks(activeRecords.sort((a, b) => b.createdAt - a.createdAt));
+        setDeletedTracks(deletedRecords.sort((a, b) => b.deletedAt - a.deletedAt));
+      } catch (error) {
+        console.error("Cannot load local library", error);
+      } finally {
+        if (alive) setReady(true);
       }
     };
 
-    media.addEventListener("timeupdate", update);
-    media.addEventListener("loadedmetadata", update);
-    media.addEventListener("durationchange", update);
-    media.addEventListener("ended", ended);
+    loadLibrary();
 
     return () => {
-      media.removeEventListener("timeupdate", update);
-      media.removeEventListener("loadedmetadata", update);
-      media.removeEventListener("durationchange", update);
-      media.removeEventListener("ended", ended);
+      alive = false;
+      trackMapRef.current.forEach(releaseTrackUrl);
+      trackMapRef.current.clear();
+
+      if (audioContextRef.current) {
+        audioContextRef.current.close().catch(() => {});
+      }
     };
-  }, [track?.id, mode]);
+  }, []);
 
-  const visible = useMemo(
-    () => songs.filter((s) => `${s.title} ${s.artist}`.toLowerCase().includes(query.toLowerCase())),
-    [songs, query]
-  );
+  const ensureAudioGraph = async () => {
+    const audio = audioRef.current;
+    if (!audio) return;
 
-  const orderedSongs = useMemo(() => (mode === "shuffle" ? shuffleArray(songs) : songs), [songs, mode]);
+    if (!audioContextRef.current) {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      const context = new AudioContextClass();
+      const source = context.createMediaElementSource(audio);
 
-  const seekTo = (value) => {
-    const media = getMedia();
-    if (!media) return;
-    media.currentTime = value;
-    setCurrentTime(value);
-  };
+      const filters = EQ_BANDS.map((band, index) => {
+        const filter = context.createBiquadFilter();
 
-  const safePlay = async (media) => {
-    if (!media) return false;
-    try {
-      const p = media.play();
-      if (p && typeof p.then === "function") await p;
-      return true;
-    } catch {
-      return false;
+        if (index === 0) filter.type = "lowshelf";
+        else if (index === EQ_BANDS.length - 1) filter.type = "highshelf";
+        else filter.type = "peaking";
+
+        filter.frequency.value = band.frequency;
+        filter.Q.value = 1.1;
+        filter.gain.value = 0;
+
+        return filter;
+      });
+
+      source.connect(filters[0]);
+
+      for (let index = 0; index < filters.length - 1; index += 1) {
+        filters[index].connect(filters[index + 1]);
+      }
+
+      filters[filters.length - 1].connect(context.destination);
+
+      audioContextRef.current = context;
+      audioFiltersRef.current = filters;
+    }
+
+    if (audioContextRef.current.state === "suspended") {
+      await audioContextRef.current.resume();
     }
   };
 
-  const resetAndAttach = (song) => {
-    const media = song.kind === "video" ? videoRef.current : audioRef.current;
-    if (!media) return null;
-    try {
-      audioRef.current?.pause();
-      videoRef.current?.pause();
-      media.pause();
-      media.currentTime = 0;
-      media.src = song.src;
-      media.preload = "auto";
-      media.load();
-    } catch {}
-    return media;
-  };
+  useEffect(() => {
+    audioFiltersRef.current.forEach((filter, index) => {
+      filter.gain.value = eqEnabled ? eqValues[index] : 0;
+    });
+  }, [eqEnabled, eqValues]);
 
-  const playCurrent = async () => {
-    if (!track) return;
-    const media = getMedia(track);
-    if (!media) return;
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
 
-    if (track.kind === "audio") {
-      ensureAudioGraph();
-      applyEq();
-    }
+    const updateProgress = () => {
+      setCurrentTime(audio.currentTime || 0);
+      setDuration(Number.isFinite(audio.duration) ? audio.duration : 0);
+    };
 
-    await new Promise((r) => requestAnimationFrame(r));
-    const ok = await safePlay(media);
-    setIsPlaying(ok);
-  };
+    const onPlay = () => setIsPlaying(true);
+    const onPause = () => setIsPlaying(false);
 
-  const pauseCurrent = () => {
-    const media = getMedia(track);
-    if (!media) return;
-    media.pause();
+    const onEnded = () => {
+      const allTracks = tracksRef.current;
+      const currentId = activeTrackIdRef.current;
+
+      if (!allTracks.length || !currentId) {
+        setIsPlaying(false);
+        return;
+      }
+
+      if (modeRef.current === "loop") {
+        audio.currentTime = 0;
+        audio.play().catch(() => setIsPlaying(false));
+        return;
+      }
+
+      let nextTrack;
+
+      if (modeRef.current === "shuffle") {
+        const otherTracks = allTracks.filter((track) => track.id !== currentId);
+        nextTrack = otherTracks[Math.floor(Math.random() * otherTracks.length)] || allTracks[0];
+      } else {
+        const currentIndex = allTracks.findIndex((track) => track.id === currentId);
+        nextTrack = allTracks[(currentIndex + 1) % allTracks.length];
+      }
+
+      if (nextTrack) {
+        setActiveTrackId(nextTrack.id);
+      }
+    };
+
+    audio.addEventListener("timeupdate", updateProgress);
+    audio.addEventListener("loadedmetadata", updateProgress);
+    audio.addEventListener("durationchange", updateProgress);
+    audio.addEventListener("play", onPlay);
+    audio.addEventListener("pause", onPause);
+    audio.addEventListener("ended", onEnded);
+
+    return () => {
+      audio.removeEventListener("timeupdate", updateProgress);
+      audio.removeEventListener("loadedmetadata", updateProgress);
+      audio.removeEventListener("durationchange", updateProgress);
+      audio.removeEventListener("play", onPlay);
+      audio.removeEventListener("pause", onPause);
+      audio.removeEventListener("ended", onEnded);
+    };
+  }, []);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio || !activeTrack) return;
+
+    audio.pause();
+    audio.src = activeTrack.url;
+    audio.load();
+
+    setCurrentTime(0);
+    setDuration(0);
     setIsPlaying(false);
-  };
+  }, [activeTrack?.id]);
 
-  const playTrack = async (song) => {
-    const idx = songs.findIndex((x) => x.id === song.id);
-    if (idx < 0) return;
+  const play = async () => {
+    const audio = audioRef.current;
+    if (!audio || !activeTrack) return;
 
-    const media = resetAndAttach(song);
-    setCurrent(idx);
-
-    await new Promise((r) => requestAnimationFrame(r));
-    await new Promise((r) => setTimeout(r, 0));
-
-    if (!media) return;
-
-    if (song.kind === "audio") {
-      ensureAudioGraph();
-      applyEq();
+    try {
+      await ensureAudioGraph();
+      await audio.play();
+    } catch (error) {
+      console.error("Playback blocked or unavailable", error);
+      setIsPlaying(false);
     }
-
-    const ok = await safePlay(media);
-    setIsPlaying(ok);
   };
 
-  const next = async () => {
-    if (!songs.length) return;
+  const pause = () => {
+    audioRef.current?.pause();
+  };
 
-    if (mode === "shuffle") {
-      const others = songs.filter((s) => s.id !== track?.id);
-      if (!others.length) return;
-      await playTrack(others[Math.floor(Math.random() * others.length)]);
+  const selectTrack = async (track) => {
+    if (!track) return;
+
+    if (track.id !== activeTrackId) {
+      setActiveTrackId(track.id);
       return;
     }
 
-    const idx = track ? songs.findIndex((s) => s.id === track.id) : 0;
-    await playTrack(songs[(idx + 1) % songs.length]);
+    await play();
   };
 
-  const prev = async () => {
-    if (!songs.length) return;
-    const idx = track ? songs.findIndex((s) => s.id === track.id) : 0;
-    await playTrack(songs[(idx - 1 + songs.length) % songs.length]);
+  useEffect(() => {
+    if (!activeTrack) return;
+
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const onCanPlay = async () => {
+      audio.removeEventListener("canplay", onCanPlay);
+      await play();
+    };
+
+    audio.addEventListener("canplay", onCanPlay, { once: true });
+
+    return () => {
+      audio.removeEventListener("canplay", onCanPlay);
+    };
+  }, [activeTrack?.id]);
+
+  const previous = () => {
+    if (!tracks.length || !activeTrackId) return;
+
+    const index = tracks.findIndex((track) => track.id === activeTrackId);
+    const previousTrack = tracks[(index - 1 + tracks.length) % tracks.length];
+
+    setActiveTrackId(previousTrack.id);
   };
 
-  const toggleFav = (id) =>
-    setFavorites((f) => (f.includes(id) ? f.filter((x) => x !== id) : [...f, id]));
+  const next = () => {
+    if (!tracks.length || !activeTrackId) return;
 
-  const addFiles = async (files) => {
-    const valid = Array.from(files || []).filter((file) => {
-      const name = file.name.toLowerCase();
-      const okMp3 = file.type.startsWith("audio/") || name.endsWith(".mp3");
-      const okMp4 = file.type.startsWith("video/") || name.endsWith(".mp4") || name.endsWith(".m4v");
-      return okMp3 || okMp4;
+    if (mode === "shuffle") {
+      const others = tracks.filter((track) => track.id !== activeTrackId);
+      const nextTrack = others[Math.floor(Math.random() * others.length)] || tracks[0];
+      setActiveTrackId(nextTrack.id);
+      return;
+    }
+
+    const index = tracks.findIndex((track) => track.id === activeTrackId);
+    setActiveTrackId(tracks[(index + 1) % tracks.length].id);
+  };
+
+  const seek = (time) => {
+    const audio = audioRef.current;
+    if (!audio || !Number.isFinite(time)) return;
+
+    audio.currentTime = time;
+    setCurrentTime(time);
+  };
+
+  const toggleFavorite = (id) => {
+    setFavorites((items) =>
+      items.includes(id) ? items.filter((item) => item !== id) : [...items, id]
+    );
+  };
+
+  const importFiles = async (event) => {
+    const files = Array.from(event.target.files || []);
+    event.target.value = "";
+
+    const acceptedFiles = files.filter((file) => {
+      const lower = file.name.toLowerCase();
+      return (
+        file.type.startsWith("audio/") ||
+        file.type.startsWith("video/") ||
+        lower.endsWith(".mp3") ||
+        lower.endsWith(".mp4") ||
+        lower.endsWith(".m4v")
+      );
     });
 
-    const created = [];
-    for (const file of valid) {
-      const id = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-      const kind = isVideoFile(file) ? "video" : "audio";
-      const thumb = kind === "video" ? await extractVideoThumbnail(file) : null;
-      const item = {
-        id,
+    const importedTracks = [];
+
+    for (const file of acceptedFiles) {
+      const kind = getKind(file);
+      const thumbnail = kind === "video" ? await createVideoThumbnail(file) : null;
+
+      const record = {
+        id: crypto.randomUUID(),
         title: file.name.replace(/\.[^.]+$/, ""),
-        artist: kind === "video" ? "Video" : "Local file",
+        artist: kind === "video" ? "Local video" : "Local audio",
         kind,
-        src: URL.createObjectURL(file),
-        thumb,
-        deleted: false,
+        file,
+        thumbnail,
         createdAt: Date.now(),
         deletedAt: null,
       };
-      await dbPut(item);
-      created.push(item);
+
+      await saveTrack(record);
+
+      const track = createTrackFromRecord(record);
+      importedTracks.push(track);
+      trackMapRef.current.set(track.id, track);
     }
 
-    if (created.length) {
-      setSongs((prev) => [...created, ...prev]);
-      setCurrent(0);
-      setSection("home");
-      requestAnimationFrame(() => playTrack(created[0]));
+    if (importedTracks.length) {
+      setTracks((existing) => [...importedTracks, ...existing]);
     }
   };
 
-  const importFiles = async (e) => {
-    await addFiles(e.target.files);
-    e.target.value = "";
+  const moveToTrash = async (track) => {
+    if (!track) return;
+
+    const record = {
+      id: track.id,
+      title: track.title,
+      artist: track.artist,
+      kind: track.kind,
+      file: track.file,
+      thumbnail: track.thumbnail || null,
+      createdAt: track.createdAt,
+      deletedAt: Date.now(),
+    };
+
+    await saveTrack(record);
+
+    const deletedTrack = {
+      ...track,
+      deletedAt: record.deletedAt,
+    };
+
+    trackMapRef.current.set(track.id, deletedTrack);
+
+    setTracks((existing) => existing.filter((item) => item.id !== track.id));
+    setDeletedTracks((existing) => [deletedTrack, ...existing]);
+
+    if (track.id === activeTrackId) {
+      pause();
+      setActiveTrackId(null);
+      setCurrentTime(0);
+      setDuration(0);
+    }
   };
 
-  const removeSong = async (id) => {
-    const item = songs.find((s) => s.id === id);
-    if (!item) return;
-    const updated = { ...item, deleted: true, deletedAt: Date.now() };
-    await dbPut(updated);
-    setSongs((prev) => prev.filter((x) => x.id !== id));
-    setDeleted((prev) => [updated, ...prev]);
-    if (track?.id === id) setIsPlaying(false);
+  const restoreTrack = async (track) => {
+    if (!track) return;
+
+    const record = {
+      id: track.id,
+      title: track.title,
+      artist: track.artist,
+      kind: track.kind,
+      file: track.file,
+      thumbnail: track.thumbnail || null,
+      createdAt: track.createdAt,
+      deletedAt: null,
+    };
+
+    await saveTrack(record);
+
+    const restoredTrack = {
+      ...track,
+      deletedAt: null,
+    };
+
+    trackMapRef.current.set(track.id, restoredTrack);
+
+    setDeletedTracks((existing) => existing.filter((item) => item.id !== track.id));
+    setTracks((existing) => [restoredTrack, ...existing]);
   };
 
-  const restoreSong = async (id) => {
-    const item = deleted.find((s) => s.id === id);
-    if (!item) return;
-    if (item.deletedAt && Date.now() - item.deletedAt > TEN_DAYS) return;
-    const updated = { ...item, deleted: false, deletedAt: null };
-    await dbPut(updated);
-    setDeleted((prev) => prev.filter((x) => x.id !== id));
-    setSongs((prev) => [updated, ...prev]);
+  const permanentlyDeleteTrack = async (track) => {
+    if (!track) return;
+
+    await deleteTrackFromDatabase(track.id);
+    releaseTrackUrl(track);
+    trackMapRef.current.delete(track.id);
+
+    setDeletedTracks((existing) => existing.filter((item) => item.id !== track.id));
+    setFavorites((existing) => existing.filter((id) => id !== track.id));
   };
 
-  const restoreable = deleted.filter((x) => x.deletedAt && Date.now() - x.deletedAt <= TEN_DAYS);
+  const recoverableDeletedTracks = deletedTracks.filter(
+    (track) => Date.now() - track.deletedAt <= TEN_DAYS_MS
+  );
 
   return (
-    <div className="min-h-screen bg-[#09090b] text-white pb-44">
-      <div className="mx-auto max-w-7xl px-4 pt-4">
+    <main className="min-h-screen bg-[#09090b] pb-44 text-white">
+      <audio ref={audioRef} preload="metadata" />
+
+      <div className="mx-auto max-w-5xl px-4 pt-4">
         <div className="rounded-[28px] border border-white/10 bg-[#111113] p-4 shadow-[0_18px_60px_rgba(0,0,0,0.38)]">
-          {section === "home" ? (
-            <div className="space-y-4">
+          {!ready && (
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-zinc-400">
+              Loading your local library…
+            </div>
+          )}
+
+          {ready && section === "home" && (
+            <section className="space-y-4">
               <div className="flex items-center gap-3">
                 <div className="grid h-12 w-12 place-items-center rounded-2xl bg-white/5 text-[#7db6ff]">
                   <Music2 />
                 </div>
                 <div>
-                  <div className="text-lg font-semibold">Home</div>
-                  <div className="text-sm text-zinc-400">Import and browse your folders</div>
+                  <h1 className="text-lg font-semibold">Audify</h1>
+                  <p className="text-sm text-zinc-400">Your local audio library</p>
                 </div>
               </div>
 
-              <label className="flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-4 transition active:scale-[0.99]">
-                <Upload size={16} />
-                Import files
+              <label className="flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-4 transition active:scale-[0.99]">
+                <Upload size={17} />
+                Import audio or video
                 <input
                   type="file"
                   multiple
-                  className="hidden"
                   accept="audio/*,video/*,.mp3,.mp4,.m4v"
+                  className="hidden"
                   onChange={importFiles}
                 />
               </label>
 
-              <div className="grid gap-3 md:grid-cols-2">
-                {[["All tracks", songs.length], ["Deleted", deleted.length]].map(([label, count]) => (
-                  <div key={label} className="rounded-2xl border border-white/10 bg-[#16161a] p-4">
-                    <div className="text-sm text-zinc-400">{label}</div>
-                    <div className="mt-2 text-2xl font-semibold">{count}</div>
-                  </div>
-                ))}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-2xl border border-white/10 bg-[#16161a] p-4">
+                  <p className="text-sm text-zinc-400">Tracks</p>
+                  <p className="mt-2 text-2xl font-bold">{tracks.length}</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-[#16161a] p-4">
+                  <p className="text-sm text-zinc-400">Favorites</p>
+                  <p className="mt-2 text-2xl font-bold">{favorites.length}</p>
+                </div>
               </div>
 
               <div className="rounded-2xl border border-white/10 bg-[#16161a] p-4">
                 <div className="mb-3 flex items-center gap-2 text-sm text-zinc-400">
-                  <Search size={15} /> Search
+                  <Search size={16} />
+                  Search
                 </div>
                 <input
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Search imported files"
-                  className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 outline-none"
+                  value={searchText}
+                  onChange={(event) => setSearchText(event.target.value)}
+                  placeholder="Search tracks"
+                  className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-white outline-none placeholder:text-zinc-600"
                 />
               </div>
 
-              <div className="space-y-3 max-h-[52vh] overflow-auto pr-1">
-                {(query ? visible : orderedSongs).map((s) => (
-                  <div
-                    key={s.id}
-                    className={`flex items-center gap-3 rounded-2xl border border-white/10 bg-[#16161a] px-4 py-3 transition hover:bg-white/[0.04] ${
-                      track?.id === s.id ? "ring-1 ring-white/15" : ""
-                    }`}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => playTrack(s)}
-                      className="flex min-w-0 flex-1 items-center gap-3 text-left"
-                    >
-                      <div className="h-12 w-12 overflow-hidden rounded-2xl bg-[#0b1020]">
-                        {s.kind === "video" && s.thumb ? (
-                          <img src={s.thumb} className="h-full w-full object-cover" alt="" />
-                        ) : (
-                          <div className="flex h-full w-full items-center justify-center text-[#7db6ff]">♫</div>
-                        )}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="truncate font-medium">{s.title}</div>
-                        <div className="truncate text-sm text-zinc-400">{s.artist}</div>
-                      </div>
-                    </button>
+              <div className="space-y-3">
+                {filteredTracks.length === 0 && (
+                  <div className="rounded-2xl border border-dashed border-white/10 p-8 text-center text-sm text-zinc-500">
+                    Import an MP3 or MP4 to start.
+                  </div>
+                )}
 
-                    <button
-                      type="button"
-                      onClick={() => toggleFav(s.id)}
-                      className={`grid h-11 w-11 place-items-center rounded-full transition active:scale-95 ${
-                        favorites.includes(s.id) ? "bg-white/10 text-white" : "bg-white/5 text-zinc-300"
+                {filteredTracks.map((track) => {
+                  const favorite = favorites.includes(track.id);
+                  const selected = activeTrackId === track.id;
+
+                  return (
+                    <article
+                      key={track.id}
+                      className={`flex items-center gap-3 rounded-2xl border px-4 py-3 ${
+                        selected
+                          ? "border-[#7db6ff]/60 bg-[#7db6ff]/10"
+                          : "border-white/10 bg-[#16161a]"
                       }`}
                     >
-                      <Heart size={16} className={favorites.includes(s.id) ? "fill-white text-white" : ""} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : null}
+                      <button
+                        type="button"
+                        onClick={() => selectTrack(track)}
+                        className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                      >
+                        <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-[#0b1020] text-xl text-[#7db6ff]">
+                          {track.thumbnail ? (
+                            <img
+                              src={track.thumbnail}
+                              alt=""
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            "♫"
+                          )}
+                        </div>
 
-          {section === "files" ? (
-            <div className="space-y-4">
+                        <div className="min-w-0">
+                          <p className="truncate font-medium">{track.title}</p>
+                          <p className="truncate text-sm text-zinc-400">{track.artist}</p>
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => toggleFavorite(track.id)}
+                        className="grid h-11 w-11 place-items-center rounded-full bg-white/5 active:scale-95"
+                        aria-label="Favorite track"
+                      >
+                        <Heart
+                          size={17}
+                          className={favorite ? "fill-white text-white" : ""}
+                        />
+                      </button>
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+
+          {ready && section === "files" && (
+            <section className="space-y-4">
               <div className="flex items-center gap-3">
                 <div className="grid h-12 w-12 place-items-center rounded-2xl bg-white/5 text-[#7db6ff]">
                   <Folder />
                 </div>
                 <div>
-                  <div className="text-lg font-semibold">Files</div>
-                  <div className="text-sm text-zinc-400">Manage uploaded files</div>
+                  <h1 className="text-lg font-semibold">Files</h1>
+                  <p className="text-sm text-zinc-400">Manage your local library</p>
                 </div>
               </div>
 
               <div className="space-y-3">
-                {songs.map((s) => (
-                  <div
-                    key={s.id}
+                {tracks.map((track) => (
+                  <article
+                    key={track.id}
                     className="flex items-center gap-3 rounded-2xl border border-white/10 bg-[#16161a] px-4 py-3"
                   >
-                    <div className="h-12 w-12 overflow-hidden rounded-2xl bg-[#0b1020]">
-                      {s.kind === "video" && s.thumb ? (
-                        <img src={s.thumb} className="h-full w-full object-cover" alt="" />
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-[#0b1020] text-xl text-[#7db6ff]">
+                      {track.thumbnail ? (
+                        <img
+                          src={track.thumbnail}
+                          alt=""
+                          className="h-full w-full object-cover"
+                        />
                       ) : (
-                        <div className="flex h-full w-full items-center justify-center text-[#7db6ff]">♫</div>
+                        "♫"
                       )}
                     </div>
+
                     <div className="min-w-0 flex-1">
-                      <div className="truncate font-medium">{s.title}</div>
-                      <div className="truncate text-sm text-zinc-400">Active file</div>
+                      <p className="truncate font-medium">{track.title}</p>
+                      <p className="truncate text-sm text-zinc-400">
+                        Added {formatDate(track.createdAt)}
+                      </p>
                     </div>
+
                     <button
                       type="button"
-                      onClick={() => removeSong(s.id)}
-                      className="grid h-11 w-11 place-items-center rounded-full bg-white/5 transition active:scale-95"
+                      onClick={() => moveToTrash(track)}
+                      className="grid h-11 w-11 place-items-center rounded-full bg-white/5 active:scale-95"
+                      aria-label="Move file to trash"
                     >
-                      <Trash2 size={16} />
+                      <Trash2 size={17} />
                     </button>
-                  </div>
+                  </article>
                 ))}
               </div>
-            </div>
-          ) : null}
+            </section>
+          )}
 
-          {section === "settings" ? (
-            <div className="space-y-4">
+          {ready && section === "settings" && (
+            <section className="space-y-4">
               <div className="flex items-center gap-3">
                 <div className="grid h-12 w-12 place-items-center rounded-2xl bg-white/5 text-[#7db6ff]">
                   <Settings />
                 </div>
                 <div>
-                  <div className="text-lg font-semibold">Settings</div>
-                  <div className="text-sm text-zinc-400">Equalizer and trash</div>
+                  <h1 className="text-lg font-semibold">Settings</h1>
+                  <p className="text-sm text-zinc-400">Equalizer and deleted files</p>
                 </div>
               </div>
 
               <div className="rounded-2xl border border-white/10 bg-[#16161a] p-4">
-                <div className="mb-3 flex items-center justify-between text-sm font-medium">
-                  <span>Trash</span>
-                  <span className="text-zinc-400">{restoreable.length} recoverable</span>
+                <div className="mb-4 flex items-center justify-between">
+                  <p className="font-medium">Equalizer</p>
+                  <button
+                    type="button"
+                    onClick={() => setEqEnabled((value) => !value)}
+                    className="rounded-full bg-white/5 px-4 py-2 text-sm active:scale-95"
+                  >
+                    {eqEnabled ? "Enabled" : "Disabled"}
+                  </button>
                 </div>
 
-                <div className="space-y-3">
-                  {deleted.length ? deleted.map((s) => {
-                    const canRestore = !s.deletedAt || Date.now() - s.deletedAt <= TEN_DAYS;
-                    return (
-                      <div
-                        key={s.id}
-                        className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/25 px-4 py-3"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate font-medium">{s.title}</div>
-                          <div className="truncate text-xs text-zinc-400">
-                            {canRestore ? "Recoverable for 10 days" : "Expired"}
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          disabled={!canRestore}
-                          onClick={() => restoreSong(s.id)}
-                          className={`rounded-full px-4 py-2 text-sm transition ${
-                            canRestore ? "bg-white/5 text-white active:scale-95" : "cursor-not-allowed bg-white/5 text-zinc-500"
-                          }`}
-                        >
-                          Restore
-                        </button>
+                <div className={eqEnabled ? "space-y-4" : "pointer-events-none space-y-4 opacity-40"}>
+                  {EQ_BANDS.map((band, index) => (
+                    <div key={band.frequency}>
+                      <div className="mb-1 flex justify-between text-xs text-zinc-400">
+                        <span>{band.label}</span>
+                        <span>
+                          {eqValues[index] > 0 ? "+" : ""}
+                          {eqValues[index]} dB
+                        </span>
                       </div>
-                    );
-                  }) : (
-                    <div className="text-sm text-zinc-400">Trash is empty.</div>
-                  )}
-                </div>
-              </div>
 
-              <div className="rounded-2xl border border-white/10 bg-[#16161a] p-4">
-                <div className="mb-3 text-sm font-medium">Equalizer</div>
-                <button
-                  type="button"
-                  onClick={() => setEqEnabled((v) => !v)}
-                  className="mb-4 rounded-full bg-white/5 px-4 py-2 text-sm transition active:scale-[0.99]"
-                >
-                  {eqEnabled ? "Disable EQ" : "Enable EQ"}
-                </button>
-
-                <div className={`space-y-4 ${eqEnabled ? "" : "pointer-events-none opacity-40"}`}>
-                  {EQ_BANDS.map((band, i) => (
-                    <div key={band.label}>
-                      <div className="mb-1 flex items-center justify-between text-xs text-zinc-400">
-                        <span>{band.label} Hz</span>
-                        <span>{eq[i] > 0 ? `+${eq[i]}` : eq[i]}</span>
-                      </div>
                       <input
                         type="range"
                         min="-12"
                         max="12"
-                        value={eq[i]}
-                        onChange={(e) => {
-                          const next = [...eq];
-                          next[i] = Number(e.target.value);
-                          setEq(next);
+                        step="1"
+                        value={eqValues[index]}
+                        onChange={(event) => {
+                          const nextValues = [...eqValues];
+                          nextValues[index] = Number(event.target.value);
+                          setEqValues(nextValues);
                         }}
                         className="w-full"
                       />
@@ -592,46 +824,123 @@ export default function PlayerShell() {
                   ))}
                 </div>
               </div>
-            </div>
-          ) : null}
+
+              <div className="rounded-2xl border border-white/10 bg-[#16161a] p-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <p className="font-medium">Trash</p>
+                  <span className="text-sm text-zinc-400">
+                    {recoverableDeletedTracks.length} recoverable
+                  </span>
+                </div>
+
+                <p className="mb-4 text-sm text-zinc-400">
+                  Deleted files can be restored for 10 days.
+                </p>
+
+                <div className="space-y-3">
+                  {deletedTracks.length === 0 && (
+                    <p className="text-sm text-zinc-500">Trash is empty.</p>
+                  )}
+
+                  {deletedTracks.map((track) => {
+                    const expired = Date.now() - track.deletedAt > TEN_DAYS_MS;
+
+                    return (
+                      <article
+                        key={track.id}
+                        className="rounded-2xl border border-white/10 bg-black/20 p-3"
+                      >
+                        <p className="truncate font-medium">{track.title}</p>
+                        <p className="mt-1 text-xs text-zinc-400">
+                          {expired
+                            ? "Recovery period expired"
+                            : `Deleted ${formatDate(track.deletedAt)}`}
+                        </p>
+
+                        <div className="mt-3 flex gap-2">
+                          <button
+                            type="button"
+                            disabled={expired}
+                            onClick={() => restoreTrack(track)}
+                            className={`rounded-full px-4 py-2 text-sm ${
+                              expired
+                                ? "cursor-not-allowed bg-white/5 text-zinc-600"
+                                : "bg-white/10 text-white active:scale-95"
+                            }`}
+                          >
+                            Restore
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => permanentlyDeleteTrack(track)}
+                            className="rounded-full bg-white/5 px-4 py-2 text-sm text-zinc-300 active:scale-95"
+                          >
+                            Delete forever
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              </div>
+            </section>
+          )}
         </div>
       </div>
 
+      <MiniPlayer
+        track={activeTrack}
+        isPlaying={isPlaying}
+        isFavorite={activeTrack ? favorites.includes(activeTrack.id) : false}
+        duration={duration}
+        currentTime={currentTime}
+        onPlay={play}
+        onPause={pause}
+        onPrevious={previous}
+        onNext={next}
+        onSeek={seek}
+        onToggleFavorite={() => activeTrack && toggleFavorite(activeTrack.id)}
+        mode={mode}
+        setMode={setMode}
+      />
+
       <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-[#0c0c0f]/95 backdrop-blur-xl">
-        <div className="mx-auto grid max-w-7xl grid-cols-3 gap-2 px-4 py-3">
-          <button type="button" onClick={() => setSection("home")} className={`flex flex-col items-center justify-center rounded-2xl px-3 py-3 text-xs transition ${section === "home" ? "bg-white/10 text-white" : "text-zinc-400"}`}>
+        <div className="mx-auto grid max-w-5xl grid-cols-3 gap-2 px-4 py-3">
+          <button
+            type="button"
+            onClick={() => setSection("home")}
+            className={`flex min-h-11 flex-col items-center justify-center rounded-2xl px-3 py-2 text-xs ${
+              section === "home" ? "bg-white/10 text-white" : "text-zinc-400"
+            }`}
+          >
             <Home size={18} />
             Home
           </button>
-          <button type="button" onClick={() => setSection("files")} className={`flex flex-col items-center justify-center rounded-2xl px-3 py-3 text-xs transition ${section === "files" ? "bg-white/10 text-white" : "text-zinc-400"}`}>
+
+          <button
+            type="button"
+            onClick={() => setSection("files")}
+            className={`flex min-h-11 flex-col items-center justify-center rounded-2xl px-3 py-2 text-xs ${
+              section === "files" ? "bg-white/10 text-white" : "text-zinc-400"
+            }`}
+          >
             <Folder size={18} />
             Files
           </button>
-          <button type="button" onClick={() => setSection("settings")} className={`flex flex-col items-center justify-center rounded-2xl px-3 py-3 text-xs transition ${section === "settings" ? "bg-white/10 text-white" : "text-zinc-400"}`}>
+
+          <button
+            type="button"
+            onClick={() => setSection("settings")}
+            className={`flex min-h-11 flex-col items-center justify-center rounded-2xl px-3 py-2 text-xs ${
+              section === "settings" ? "bg-white/10 text-white" : "text-zinc-400"
+            }`}
+          >
             <Settings size={18} />
             Settings
           </button>
         </div>
       </nav>
-
-      <audio ref={audioRef} className="hidden" onEnded={() => { setIsPlaying(false); next(); }} />
-
-      <MiniPlayer
-        track={track}
-        isPlaying={isPlaying}
-        onPlay={playCurrent}
-        onPause={pauseCurrent}
-        onPrev={prev}
-        onNext={next}
-        onToggleFav={() => track && toggleFav(track.id)}
-        isFav={track ? favorites.includes(track.id) : false}
-        videoRef={videoRef}
-        duration={duration}
-        currentTime={currentTime}
-        seekTo={seekTo}
-        mode={mode}
-        setMode={setMode}
-      />
-    </div>
+    </main>
   );
 }
