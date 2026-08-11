@@ -155,6 +155,7 @@ async function createVideoThumbnail(file) {
 
 function formatDate(timestamp) {
   if (!timestamp) return "";
+
   return new Intl.DateTimeFormat("it-IT", {
     day: "2-digit",
     month: "short",
@@ -174,7 +175,7 @@ export default function PlayerShell() {
   const [duration, setDuration] = useState(0);
   const [mode, setMode] = useState("normal");
   const [eqEnabled, setEqEnabled] = useState(true);
-  const [eqValues, setEqValues] = useState(Array(7).fill(0));
+  const [eqValues, setEqValues] = useState(Array(EQ_BANDS.length).fill(0));
   const [ready, setReady] = useState(false);
 
   const audioRef = useRef(null);
@@ -214,8 +215,13 @@ export default function PlayerShell() {
 
   useEffect(() => {
     try {
-      const savedFavorites = JSON.parse(localStorage.getItem(FAVORITES_KEY) || "[]");
-      if (Array.isArray(savedFavorites)) setFavorites(savedFavorites);
+      const savedFavorites = JSON.parse(
+        localStorage.getItem(FAVORITES_KEY) || "[]"
+      );
+
+      if (Array.isArray(savedFavorites)) {
+        setFavorites(savedFavorites);
+      }
     } catch {
       setFavorites([]);
     }
@@ -244,8 +250,11 @@ export default function PlayerShell() {
 
           const track = createTrackFromRecord(record);
 
-          if (track.deletedAt) deletedRecords.push(track);
-          else activeRecords.push(track);
+          if (track.deletedAt) {
+            deletedRecords.push(track);
+          } else {
+            activeRecords.push(track);
+          }
         }
 
         if (!alive) {
@@ -254,15 +263,22 @@ export default function PlayerShell() {
         }
 
         trackMapRef.current = new Map(
-          [...activeRecords, ...deletedRecords].map((track) => [track.id, track])
+          [...activeRecords, ...deletedRecords].map((track) => [
+            track.id,
+            track,
+          ])
         );
 
         setTracks(activeRecords.sort((a, b) => b.createdAt - a.createdAt));
-        setDeletedTracks(deletedRecords.sort((a, b) => b.deletedAt - a.deletedAt));
+        setDeletedTracks(
+          deletedRecords.sort((a, b) => b.deletedAt - a.deletedAt)
+        );
       } catch (error) {
         console.error("Cannot load local library", error);
       } finally {
-        if (alive) setReady(true);
+        if (alive) {
+          setReady(true);
+        }
       }
     };
 
@@ -270,6 +286,7 @@ export default function PlayerShell() {
 
     return () => {
       alive = false;
+
       trackMapRef.current.forEach(releaseTrackUrl);
       trackMapRef.current.clear();
 
@@ -284,16 +301,22 @@ export default function PlayerShell() {
     if (!audio) return;
 
     if (!audioContextRef.current) {
-      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      const AudioContextClass =
+        window.AudioContext || window.webkitAudioContext;
+
       const context = new AudioContextClass();
       const source = context.createMediaElementSource(audio);
 
       const filters = EQ_BANDS.map((band, index) => {
         const filter = context.createBiquadFilter();
 
-        if (index === 0) filter.type = "lowshelf";
-        else if (index === EQ_BANDS.length - 1) filter.type = "highshelf";
-        else filter.type = "peaking";
+        if (index === 0) {
+          filter.type = "lowshelf";
+        } else if (index === EQ_BANDS.length - 1) {
+          filter.type = "highshelf";
+        } else {
+          filter.type = "peaking";
+        }
 
         filter.frequency.value = band.frequency;
         filter.Q.value = 1.1;
@@ -355,10 +378,18 @@ export default function PlayerShell() {
       let nextTrack;
 
       if (modeRef.current === "shuffle") {
-        const otherTracks = allTracks.filter((track) => track.id !== currentId);
-        nextTrack = otherTracks[Math.floor(Math.random() * otherTracks.length)] || allTracks[0];
+        const otherTracks = allTracks.filter(
+          (track) => track.id !== currentId
+        );
+
+        nextTrack =
+          otherTracks[Math.floor(Math.random() * otherTracks.length)] ||
+          allTracks[0];
       } else {
-        const currentIndex = allTracks.findIndex((track) => track.id === currentId);
+        const currentIndex = allTracks.findIndex(
+          (track) => track.id === currentId
+        );
+
         nextTrack = allTracks[(currentIndex + 1) % allTracks.length];
       }
 
@@ -414,7 +445,7 @@ export default function PlayerShell() {
     audioRef.current?.pause();
   };
 
-  const selectTrack = async (track) => {
+  const selectTrack = (track) => {
     if (!track) return;
 
     if (track.id !== activeTrackId) {
@@ -422,7 +453,7 @@ export default function PlayerShell() {
       return;
     }
 
-    await play();
+    play();
   };
 
   useEffect(() => {
@@ -456,8 +487,14 @@ export default function PlayerShell() {
     if (!tracks.length || !activeTrackId) return;
 
     if (mode === "shuffle") {
-      const others = tracks.filter((track) => track.id !== activeTrackId);
-      const nextTrack = others[Math.floor(Math.random() * others.length)] || tracks[0];
+      const otherTracks = tracks.filter(
+        (track) => track.id !== activeTrackId
+      );
+
+      const nextTrack =
+        otherTracks[Math.floor(Math.random() * otherTracks.length)] ||
+        tracks[0];
+
       setActiveTrackId(nextTrack.id);
       return;
     }
@@ -476,7 +513,9 @@ export default function PlayerShell() {
 
   const toggleFavorite = (id) => {
     setFavorites((items) =>
-      items.includes(id) ? items.filter((item) => item !== id) : [...items, id]
+      items.includes(id)
+        ? items.filter((item) => item !== id)
+        : [...items, id]
     );
   };
 
@@ -486,6 +525,7 @@ export default function PlayerShell() {
 
     const acceptedFiles = files.filter((file) => {
       const lower = file.name.toLowerCase();
+
       return (
         file.type.startsWith("audio/") ||
         file.type.startsWith("video/") ||
@@ -499,7 +539,8 @@ export default function PlayerShell() {
 
     for (const file of acceptedFiles) {
       const kind = getKind(file);
-      const thumbnail = kind === "video" ? await createVideoThumbnail(file) : null;
+      const thumbnail =
+        kind === "video" ? await createVideoThumbnail(file) : null;
 
       const record = {
         id: crypto.randomUUID(),
@@ -547,7 +588,9 @@ export default function PlayerShell() {
 
     trackMapRef.current.set(track.id, deletedTrack);
 
-    setTracks((existing) => existing.filter((item) => item.id !== track.id));
+    setTracks((existing) =>
+      existing.filter((item) => item.id !== track.id)
+    );
     setDeletedTracks((existing) => [deletedTrack, ...existing]);
 
     if (track.id === activeTrackId) {
@@ -581,7 +624,9 @@ export default function PlayerShell() {
 
     trackMapRef.current.set(track.id, restoredTrack);
 
-    setDeletedTracks((existing) => existing.filter((item) => item.id !== track.id));
+    setDeletedTracks((existing) =>
+      existing.filter((item) => item.id !== track.id)
+    );
     setTracks((existing) => [restoredTrack, ...existing]);
   };
 
@@ -589,11 +634,16 @@ export default function PlayerShell() {
     if (!track) return;
 
     await deleteTrackFromDatabase(track.id);
+
     releaseTrackUrl(track);
     trackMapRef.current.delete(track.id);
 
-    setDeletedTracks((existing) => existing.filter((item) => item.id !== track.id));
-    setFavorites((existing) => existing.filter((id) => id !== track.id));
+    setDeletedTracks((existing) =>
+      existing.filter((item) => item.id !== track.id)
+    );
+    setFavorites((existing) =>
+      existing.filter((id) => id !== track.id)
+    );
   };
 
   const recoverableDeletedTracks = deletedTracks.filter(
@@ -618,9 +668,12 @@ export default function PlayerShell() {
                 <div className="grid h-12 w-12 place-items-center rounded-2xl bg-white/5 text-[#7db6ff]">
                   <Music2 />
                 </div>
+
                 <div>
                   <h1 className="text-lg font-semibold">Audify</h1>
-                  <p className="text-sm text-zinc-400">Your local audio library</p>
+                  <p className="text-sm text-zinc-400">
+                    Your local audio library
+                  </p>
                 </div>
               </div>
 
@@ -641,9 +694,12 @@ export default function PlayerShell() {
                   <p className="text-sm text-zinc-400">Tracks</p>
                   <p className="mt-2 text-2xl font-bold">{tracks.length}</p>
                 </div>
+
                 <div className="rounded-2xl border border-white/10 bg-[#16161a] p-4">
                   <p className="text-sm text-zinc-400">Favorites</p>
-                  <p className="mt-2 text-2xl font-bold">{favorites.length}</p>
+                  <p className="mt-2 text-2xl font-bold">
+                    {favorites.length}
+                  </p>
                 </div>
               </div>
 
@@ -652,6 +708,7 @@ export default function PlayerShell() {
                   <Search size={16} />
                   Search
                 </div>
+
                 <input
                   value={searchText}
                   onChange={(event) => setSearchText(event.target.value)}
@@ -698,8 +755,12 @@ export default function PlayerShell() {
                         </div>
 
                         <div className="min-w-0">
-                          <p className="truncate font-medium">{track.title}</p>
-                          <p className="truncate text-sm text-zinc-400">{track.artist}</p>
+                          <p className="truncate font-medium">
+                            {track.title}
+                          </p>
+                          <p className="truncate text-sm text-zinc-400">
+                            {track.artist}
+                          </p>
                         </div>
                       </button>
 
@@ -727,13 +788,22 @@ export default function PlayerShell() {
                 <div className="grid h-12 w-12 place-items-center rounded-2xl bg-white/5 text-[#7db6ff]">
                   <Folder />
                 </div>
+
                 <div>
                   <h1 className="text-lg font-semibold">Files</h1>
-                  <p className="text-sm text-zinc-400">Manage your local library</p>
+                  <p className="text-sm text-zinc-400">
+                    Manage your local library
+                  </p>
                 </div>
               </div>
 
               <div className="space-y-3">
+                {tracks.length === 0 && (
+                  <div className="rounded-2xl border border-dashed border-white/10 p-8 text-center text-sm text-zinc-500">
+                    No local files yet.
+                  </div>
+                )}
+
                 {tracks.map((track) => (
                   <article
                     key={track.id}
@@ -778,50 +848,134 @@ export default function PlayerShell() {
                 <div className="grid h-12 w-12 place-items-center rounded-2xl bg-white/5 text-[#7db6ff]">
                   <Settings />
                 </div>
+
                 <div>
                   <h1 className="text-lg font-semibold">Settings</h1>
-                  <p className="text-sm text-zinc-400">Equalizer and deleted files</p>
+                  <p className="text-sm text-zinc-400">
+                    Equalizer and deleted files
+                  </p>
                 </div>
               </div>
 
-              <div className="rounded-2xl border border-white/10 bg-[#16161a] p-4">
-                <div className="mb-4 flex items-center justify-between">
-                  <p className="font-medium">Equalizer</p>
+              <div className="overflow-hidden rounded-[28px] border border-[#29334a] bg-[radial-gradient(circle_at_top,#17213a_0%,#0d1018_52%,#080a0f_100%)] p-5 shadow-[0_12px_38px_rgba(0,0,0,0.35)]">
+                <div className="mb-5 flex items-center justify-between">
+                  <div>
+                    <p className="text-lg font-semibold text-white">
+                      Graphic Equalizer
+                    </p>
+                    <p className="mt-1 text-xs text-zinc-400">
+                      Adjust frequencies from -12 dB to +12 dB
+                    </p>
+                  </div>
+
                   <button
                     type="button"
                     onClick={() => setEqEnabled((value) => !value)}
-                    className="rounded-full bg-white/5 px-4 py-2 text-sm active:scale-95"
+                    className={`rounded-full px-4 py-2 text-xs font-semibold transition active:scale-95 ${
+                      eqEnabled
+                        ? "bg-[#7db6ff] text-[#07111f]"
+                        : "bg-white/10 text-zinc-400"
+                    }`}
                   >
-                    {eqEnabled ? "Enabled" : "Disabled"}
+                    {eqEnabled ? "EQ ON" : "EQ OFF"}
                   </button>
                 </div>
 
-                <div className={eqEnabled ? "space-y-4" : "pointer-events-none space-y-4 opacity-40"}>
-                  {EQ_BANDS.map((band, index) => (
-                    <div key={band.frequency}>
-                      <div className="mb-1 flex justify-between text-xs text-zinc-400">
-                        <span>{band.label}</span>
-                        <span>
-                          {eqValues[index] > 0 ? "+" : ""}
-                          {eqValues[index]} dB
-                        </span>
-                      </div>
+                <div
+                  className={`rounded-2xl border border-white/10 bg-black/25 px-3 pb-4 pt-5 ${
+                    eqEnabled ? "" : "pointer-events-none opacity-40"
+                  }`}
+                >
+                  <div className="mb-3 flex items-center justify-between px-1 text-[10px] font-medium uppercase tracking-[0.18em] text-zinc-500">
+                    <span>+12 dB</span>
+                    <span>0 dB</span>
+                    <span>-12 dB</span>
+                  </div>
 
-                      <input
-                        type="range"
-                        min="-12"
-                        max="12"
-                        step="1"
-                        value={eqValues[index]}
-                        onChange={(event) => {
-                          const nextValues = [...eqValues];
-                          nextValues[index] = Number(event.target.value);
-                          setEqValues(nextValues);
-                        }}
-                        className="w-full"
-                      />
-                    </div>
-                  ))}
+                  <div className="flex min-h-[250px] items-end justify-between gap-2">
+                    {EQ_BANDS.map((band, index) => {
+                      const value = eqValues[index];
+                      const percentage = ((value + 12) / 24) * 100;
+
+                      return (
+                        <div
+                          key={band.frequency}
+                          className="flex min-w-0 flex-1 flex-col items-center gap-3"
+                        >
+                          <div className="relative flex h-[190px] w-full max-w-[34px] items-center justify-center">
+                            <div className="absolute inset-x-0 top-0 h-px bg-white/10" />
+                            <div className="absolute inset-x-0 top-1/4 h-px bg-white/10" />
+                            <div className="absolute inset-x-0 top-1/2 h-px bg-[#7db6ff]/30" />
+                            <div className="absolute inset-x-0 top-3/4 h-px bg-white/10" />
+                            <div className="absolute inset-x-0 bottom-0 h-px bg-white/10" />
+
+                            <div className="absolute left-1/2 top-0 h-full w-[4px] -translate-x-1/2 rounded-full bg-[#05070c] ring-1 ring-white/10">
+                              <div
+                                className="absolute bottom-0 left-0 w-full rounded-full bg-gradient-to-t from-[#2776e7] via-[#62a4ff] to-[#b2d6ff] opacity-90 transition-all duration-150"
+                                style={{ height: `${percentage}%` }}
+                              />
+                            </div>
+
+                            <input
+                              type="range"
+                              min="-12"
+                              max="12"
+                              step="1"
+                              value={value}
+                              onChange={(event) => {
+                                const nextValues = [...eqValues];
+                                nextValues[index] = Number(
+                                  event.target.value
+                                );
+                                setEqValues(nextValues);
+                              }}
+                              className="eq-vertical-slider absolute z-20 h-[190px] w-[34px] cursor-pointer"
+                              aria-label={`${band.label} equalizer`}
+                            />
+
+                            <div
+                              className="pointer-events-none absolute left-1/2 z-10 h-5 w-5 -translate-x-1/2 rounded-full border border-white/40 bg-[#d9ecff] shadow-[0_0_14px_rgba(125,182,255,0.75)] transition-all duration-150"
+                              style={{
+                                bottom: `calc(${percentage}% - 10px)`,
+                              }}
+                            />
+                          </div>
+
+                          <div className="text-center">
+                            <p className="text-[10px] font-semibold text-white">
+                              {band.label
+                                .replace(" Hz", "")
+                                .replace(" kHz", "K")}
+                            </p>
+                            <p className="mt-1 text-[9px] text-[#7db6ff]">
+                              {value > 0 ? "+" : ""}
+                              {value}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="mt-4 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setEqValues(Array(EQ_BANDS.length).fill(0))
+                    }
+                    className="flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm font-medium text-white transition active:scale-[0.98]"
+                  >
+                    Reset
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setEqValues([7, 4, 2, 0, -1, 2, 5])}
+                    className="flex-1 rounded-xl border border-[#7db6ff]/30 bg-[#7db6ff]/10 px-3 py-3 text-sm font-medium text-[#b8d8ff] transition active:scale-[0.98]"
+                  >
+                    Bass Boost
+                  </button>
                 </div>
               </div>
 
@@ -843,7 +997,8 @@ export default function PlayerShell() {
                   )}
 
                   {deletedTracks.map((track) => {
-                    const expired = Date.now() - track.deletedAt > TEN_DAYS_MS;
+                    const expired =
+                      Date.now() - track.deletedAt > TEN_DAYS_MS;
 
                     return (
                       <article
@@ -851,6 +1006,7 @@ export default function PlayerShell() {
                         className="rounded-2xl border border-white/10 bg-black/20 p-3"
                       >
                         <p className="truncate font-medium">{track.title}</p>
+
                         <p className="mt-1 text-xs text-zinc-400">
                           {expired
                             ? "Recovery period expired"
@@ -900,7 +1056,9 @@ export default function PlayerShell() {
         onPrevious={previous}
         onNext={next}
         onSeek={seek}
-        onToggleFavorite={() => activeTrack && toggleFavorite(activeTrack.id)}
+        onToggleFavorite={() =>
+          activeTrack && toggleFavorite(activeTrack.id)
+        }
         mode={mode}
         setMode={setMode}
       />
@@ -911,7 +1069,9 @@ export default function PlayerShell() {
             type="button"
             onClick={() => setSection("home")}
             className={`flex min-h-11 flex-col items-center justify-center rounded-2xl px-3 py-2 text-xs ${
-              section === "home" ? "bg-white/10 text-white" : "text-zinc-400"
+              section === "home"
+                ? "bg-white/10 text-white"
+                : "text-zinc-400"
             }`}
           >
             <Home size={18} />
@@ -922,7 +1082,9 @@ export default function PlayerShell() {
             type="button"
             onClick={() => setSection("files")}
             className={`flex min-h-11 flex-col items-center justify-center rounded-2xl px-3 py-2 text-xs ${
-              section === "files" ? "bg-white/10 text-white" : "text-zinc-400"
+              section === "files"
+                ? "bg-white/10 text-white"
+                : "text-zinc-400"
             }`}
           >
             <Folder size={18} />
@@ -933,7 +1095,9 @@ export default function PlayerShell() {
             type="button"
             onClick={() => setSection("settings")}
             className={`flex min-h-11 flex-col items-center justify-center rounded-2xl px-3 py-2 text-xs ${
-              section === "settings" ? "bg-white/10 text-white" : "text-zinc-400"
+              section === "settings"
+                ? "bg-white/10 text-white"
+                : "text-zinc-400"
             }`}
           >
             <Settings size={18} />
