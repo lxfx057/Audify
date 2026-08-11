@@ -37,28 +37,44 @@ input[type="range"] {
   accent-color: #79a9e8;
 }
 
-.eq-vertical-slider {
+.eq-real-slider {
   appearance: slider-vertical;
   -webkit-appearance: slider-vertical;
   writing-mode: vertical-lr;
   direction: rtl;
+  cursor: ns-resize;
+  touch-action: none;
   background: transparent;
   opacity: 0;
-  touch-action: none;
-  user-select: none;
-  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
-.eq-vertical-slider::-webkit-slider-thumb {
+.eq-real-slider::-webkit-slider-runnable-track {
+  background: transparent;
+  border: 0;
+}
+
+.eq-real-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 40px;
-  height: 20px;
-}
-
-.eq-vertical-slider::-moz-range-thumb {
-  width: 40px;
-  height: 20px;
+  width: 42px;
+  height: 28px;
   border: 0;
   background: transparent;
+}
+
+.eq-real-slider::-moz-range-track {
+  background: transparent;
+  border: 0;
+}
+
+.eq-real-slider::-moz-range-thumb {
+  width: 42px;
+  height: 28px;
+  border: 0;
+  background: transparent;
+}
+
+.eq-real-slider:disabled {
+  cursor: not-allowed;
 }
