@@ -2,20 +2,27 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Album,
+  ChevronLeft,
   Folder,
   Heart,
   Home,
+  ListMusic,
   Music2,
+  Plus,
   Search,
   Settings,
   Trash2,
   Upload,
+  UserRound,
+  X,
 } from "lucide-react";
 import MiniPlayer from "./MiniPlayer";
 
 const DATABASE_NAME = "audify-library";
-const DATABASE_VERSION = 2;
+const DATABASE_VERSION = 3;
 const TRACK_STORE = "tracks";
+const COLLECTION_STORE = "collections";
 const FAVORITES_KEY = "audify-favorites";
 const TEN_DAYS_MS = 10 * 24 * 60 * 60 * 1000;
 
@@ -39,6 +46,10 @@ function openDatabase() {
       if (!database.objectStoreNames.contains(TRACK_STORE)) {
         database.createObjectStore(TRACK_STORE, { keyPath: "id" });
       }
+
+      if (!database.objectStoreNames.contains(COLLECTION_STORE)) {
+        database.createObjectStore(COLLECTION_STORE, { keyPath: "id" });
+      }
     };
 
     request.onsuccess = () => resolve(request.result);
@@ -46,36 +57,36 @@ function openDatabase() {
   });
 }
 
-async function getSavedTracks() {
+async function getAllRecords(storeName) {
   const database = await openDatabase();
 
   return new Promise((resolve, reject) => {
-    const transaction = database.transaction(TRACK_STORE, "readonly");
-    const request = transaction.objectStore(TRACK_STORE).getAll();
+    const transaction = database.transaction(storeName, "readonly");
+    const request = transaction.objectStore(storeName).getAll();
 
     request.onsuccess = () => resolve(request.result || []);
     request.onerror = () => reject(request.error);
   });
 }
 
-async function saveTrack(track) {
+async function saveRecord(storeName, record) {
   const database = await openDatabase();
 
   return new Promise((resolve, reject) => {
-    const transaction = database.transaction(TRACK_STORE, "readwrite");
-    transaction.objectStore(TRACK_STORE).put(track);
+    const transaction = database.transaction(storeName, "readwrite");
+    transaction.objectStore(storeName).put(record);
 
     transaction.oncomplete = () => resolve();
     transaction.onerror = () => reject(transaction.error);
   });
 }
 
-async function deleteTrackFromDatabase(id) {
+async function deleteRecord(storeName, id) {
   const database = await openDatabase();
 
   return new Promise((resolve, reject) => {
-    const transaction = database.transaction(TRACK_STORE, "readwrite");
-    transaction.objectStore(TRACK_STORE).delete(id);
+    const transaction = database.transaction(storeName, "readwrite");
+    transaction.objectStore(storeName).delete(id);
 
     transaction.oncomplete = () => resolve();
     transaction.onerror = () => reject(transaction.error);
@@ -109,14 +120,85 @@ function releaseTrackUrl(track) {
   }
 }
 
+function formatDate(timestamp) {
+  if (!timestamp) return "";
+
+  return new Intl.DateTimeFormat("it-IT", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(new Date(timestamp));
+}
+
+function formatEqValue(value) {
+  return `${value > 0 ? "+" : ""}${value} dB`;
+}
+
+function normalizeText(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase();
+}
+
+function isSameFile(file, track) {
+  if (!track?.file) return false;
+
+  return (
+    normalizeText(file.name) === normalizeText(track.file.name) &&
+    file.size === track.file.size &&
+    file.type === track.file.type &&
+    file.lastModified === track.file.lastModified
+  );
+}
+
+function makeCollectionCover(type, name) {
+  const palette =
+    type === "album"
+      ? ["#173b67", "#265e9e", "#8ec5ff"]
+      : ["#312260", "#6f4dc7", "#c7b7ff"];
+
+  const initials = name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((word) => word[0])
+    .join("")
+    .toUpperCase();
+
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="600" height="600">
+      <defs>
+        <linearGradient id="cover" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="${palette[0]}"/>
+          <stop offset="55%" stop-color="${palette[1]}"/>
+          <stop offset="100%" stop-color="${palette[2]}"/>
+        </linearGradient>
+      </defs>
+      <rect width="600" height="600" rx="90" fill="url(#cover)"/>
+      <circle cx="450" cy="145" r="120" fill="rgba(255,255,255,0.09)"/>
+      <circle cx="135" cy="485" r="175" fill="rgba(0,0,0,0.12)"/>
+      <text x="300" y="335" text-anchor="middle" fill="white"
+        font-family="Arial, sans-serif" font-size="180" font-weight="700">
+        ${initials || "A"}
+      </text>
+    </svg>
+  `;
+
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+}
+
 async function createVideoThumbnail(file) {
   return new Promise((resolve) => {
     const video = document.createElement("video");
     const temporaryUrl = URL.createObjectURL(file);
+    let settled = false;
 
-    const cleanup = () => {
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
       URL.revokeObjectURL(temporaryUrl);
       video.remove();
+      resolve(value);
     };
 
     video.src = temporaryUrl;
@@ -137,41 +219,91 @@ async function createVideoThumbnail(file) {
         const context = canvas.getContext("2d");
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-        const thumbnail = canvas.toDataURL("image/jpeg", 0.82);
-        cleanup();
-        resolve(thumbnail);
+        finish(canvas.toDataURL("image/jpeg", 0.82));
       } catch {
-        cleanup();
-        resolve(null);
+        finish(null);
       }
     });
 
-    video.addEventListener("error", () => {
-      cleanup();
-      resolve(null);
-    });
+    video.addEventListener("error", () => finish(null));
   });
 }
 
-function formatDate(timestamp) {
-  if (!timestamp) return "";
-
-  return new Intl.DateTimeFormat("it-IT", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  }).format(new Date(timestamp));
+function EmptyState({ children }) {
+  return (
+    <div className="rounded-2xl border border-dashed border-white/10 px-5 py-9 text-center text-sm text-zinc-500">
+      {children}
+    </div>
+  );
 }
 
-function formatEqValue(value) {
-  return `${value > 0 ? "+" : ""}${value} dB`;
+function TrackRow({
+  track,
+  isFavorite,
+  isSelected,
+  onSelect,
+  onToggleFavorite,
+  rightAction,
+}) {
+  return (
+    <article
+      className={`flex items-center gap-3 rounded-2xl border px-4 py-3 ${
+        isSelected
+          ? "border-[#7db6ff]/60 bg-[#7db6ff]/10"
+          : "border-white/10 bg-[#16161a]"
+      }`}
+    >
+      <button
+        type="button"
+        onClick={() => onSelect(track)}
+        className="flex min-w-0 flex-1 items-center gap-3 text-left"
+      >
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-[#0b1020] text-xl text-[#7db6ff]">
+          {track.thumbnail ? (
+            <img
+              src={track.thumbnail}
+              alt=""
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            "♫"
+          )}
+        </div>
+
+        <div className="min-w-0">
+          <p className="truncate font-medium">{track.title}</p>
+          <p className="truncate text-sm text-zinc-400">{track.artist}</p>
+        </div>
+      </button>
+
+      {onToggleFavorite && (
+        <button
+          type="button"
+          onClick={() => onToggleFavorite(track.id)}
+          className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-white/5 active:scale-95"
+          aria-label="Toggle favorite"
+        >
+          <Heart
+            size={17}
+            className={isFavorite ? "fill-white text-white" : ""}
+          />
+        </button>
+      )}
+
+      {rightAction}
+    </article>
+  );
 }
 
 export default function PlayerShell() {
   const [tracks, setTracks] = useState([]);
   const [deletedTracks, setDeletedTracks] = useState([]);
+  const [collections, setCollections] = useState([]);
+  const [deletedCollections, setDeletedCollections] = useState([]);
   const [activeTrackId, setActiveTrackId] = useState(null);
   const [section, setSection] = useState("home");
+  const [libraryView, setLibraryView] = useState("tracks");
+  const [selectedCollectionId, setSelectedCollectionId] = useState(null);
   const [searchText, setSearchText] = useState("");
   const [favorites, setFavorites] = useState([]);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -182,10 +314,13 @@ export default function PlayerShell() {
   const [eqValues, setEqValues] = useState(Array(EQ_BANDS.length).fill(0));
   const [ready, setReady] = useState(false);
 
+  const [collectionModal, setCollectionModal] = useState(null);
+  const [collectionName, setCollectionName] = useState("");
+  const [duplicateNames, setDuplicateNames] = useState([]);
+
   const audioRef = useRef(null);
   const audioContextRef = useRef(null);
   const audioFiltersRef = useRef([]);
-  const trackMapRef = useRef(new Map());
   const activeTrackIdRef = useRef(null);
   const modeRef = useRef("normal");
   const tracksRef = useRef([]);
@@ -195,8 +330,15 @@ export default function PlayerShell() {
     [tracks, activeTrackId]
   );
 
+  const selectedCollection = useMemo(
+    () =>
+      collections.find((collection) => collection.id === selectedCollectionId) ||
+      null,
+    [collections, selectedCollectionId]
+  );
+
   const filteredTracks = useMemo(() => {
-    const term = searchText.trim().toLowerCase();
+    const term = normalizeText(searchText);
 
     if (!term) return tracks;
 
@@ -204,6 +346,42 @@ export default function PlayerShell() {
       `${track.title} ${track.artist}`.toLowerCase().includes(term)
     );
   }, [tracks, searchText]);
+
+  const favoriteTracks = useMemo(
+    () => tracks.filter((track) => favorites.includes(track.id)),
+    [tracks, favorites]
+  );
+
+  const albumCollections = useMemo(
+    () => collections.filter((collection) => collection.type === "album"),
+    [collections]
+  );
+
+  const playlistCollections = useMemo(
+    () => collections.filter((collection) => collection.type === "playlist"),
+    [collections]
+  );
+
+  const artists = useMemo(() => {
+    const artistMap = new Map();
+
+    tracks.forEach((track) => {
+      const artistName = track.artist?.trim() || "Unknown artist";
+      const current = artistMap.get(artistName) || 0;
+      artistMap.set(artistName, current + 1);
+    });
+
+    return Array.from(artistMap.entries())
+      .map(([name, total]) => ({ name, total }))
+      .sort((first, second) => first.name.localeCompare(second.name));
+  }, [tracks]);
+
+  const collectionTracks = useMemo(() => {
+    if (!selectedCollection) return [];
+
+    const ids = new Set(selectedCollection.trackIds || []);
+    return tracks.filter((track) => ids.has(track.id));
+  }, [tracks, selectedCollection]);
 
   useEffect(() => {
     activeTrackIdRef.current = activeTrackId;
@@ -240,44 +418,71 @@ export default function PlayerShell() {
 
     async function loadLibrary() {
       try {
-        const records = await getSavedTracks();
+        const [trackRecords, collectionRecords] = await Promise.all([
+          getAllRecords(TRACK_STORE),
+          getAllRecords(COLLECTION_STORE),
+        ]);
+
         const now = Date.now();
         const availableTracks = [];
-        const trashTracks = [];
+        const trashedTracks = [];
+        const activeCollections = [];
+        const trashedCollections = [];
 
-        for (const record of records) {
+        for (const record of trackRecords) {
           if (record.deletedAt && now - record.deletedAt > TEN_DAYS_MS) {
-            await deleteTrackFromDatabase(record.id);
+            await deleteRecord(TRACK_STORE, record.id);
             continue;
           }
 
           const track = createTrackFromRecord(record);
 
           if (track.deletedAt) {
-            trashTracks.push(track);
+            trashedTracks.push(track);
           } else {
             availableTracks.push(track);
           }
         }
 
-        if (!alive) {
-          [...availableTracks, ...trashTracks].forEach(releaseTrackUrl);
-          return;
+        for (const collection of collectionRecords) {
+          if (
+            collection.deletedAt &&
+            now - collection.deletedAt > TEN_DAYS_MS
+          ) {
+            await deleteRecord(COLLECTION_STORE, collection.id);
+            continue;
+          }
+
+          if (collection.deletedAt) {
+            trashedCollections.push(collection);
+          } else {
+            activeCollections.push(collection);
+          }
         }
 
-        trackMapRef.current = new Map(
-          [...availableTracks, ...trashTracks].map((track) => [
-            track.id,
-            track,
-          ])
-        );
+        if (!alive) {
+          [...availableTracks, ...trashedTracks].forEach(releaseTrackUrl);
+          return;
+        }
 
         setTracks(
           availableTracks.sort((first, second) => second.createdAt - first.createdAt)
         );
 
         setDeletedTracks(
-          trashTracks.sort((first, second) => second.deletedAt - first.deletedAt)
+          trashedTracks.sort((first, second) => second.deletedAt - first.deletedAt)
+        );
+
+        setCollections(
+          activeCollections.sort(
+            (first, second) => second.createdAt - first.createdAt
+          )
+        );
+
+        setDeletedCollections(
+          trashedCollections.sort(
+            (first, second) => second.deletedAt - first.deletedAt
+          )
         );
       } catch (error) {
         console.error("Cannot load local library", error);
@@ -292,9 +497,6 @@ export default function PlayerShell() {
 
     return () => {
       alive = false;
-
-      trackMapRef.current.forEach(releaseTrackUrl);
-      trackMapRef.current.clear();
 
       if (audioContextRef.current) {
         audioContextRef.current.close().catch(() => {});
@@ -547,9 +749,34 @@ export default function PlayerShell() {
       );
     });
 
-    const importedTracks = [];
+    const knownTracks = [...tracks, ...deletedTracks];
+    const queuedFiles = [];
+    const duplicates = [];
 
     for (const file of acceptedFiles) {
+      const alreadySaved = knownTracks.some((track) => isSameFile(file, track));
+      const alreadyQueued = queuedFiles.some(
+        (queuedFile) =>
+          normalizeText(queuedFile.name) === normalizeText(file.name) &&
+          queuedFile.size === file.size &&
+          queuedFile.type === file.type &&
+          queuedFile.lastModified === file.lastModified
+      );
+
+      if (alreadySaved || alreadyQueued) {
+        duplicates.push(file.name);
+      } else {
+        queuedFiles.push(file);
+      }
+    }
+
+    if (duplicates.length) {
+      setDuplicateNames(duplicates);
+    }
+
+    const importedTracks = [];
+
+    for (const file of queuedFiles) {
       const kind = getKind(file);
       const thumbnail =
         kind === "video" ? await createVideoThumbnail(file) : null;
@@ -565,11 +792,10 @@ export default function PlayerShell() {
         deletedAt: null,
       };
 
-      await saveTrack(record);
+      await saveRecord(TRACK_STORE, record);
 
       const track = createTrackFromRecord(record);
       importedTracks.push(track);
-      trackMapRef.current.set(track.id, track);
     }
 
     if (importedTracks.length) {
@@ -591,19 +817,32 @@ export default function PlayerShell() {
       deletedAt: Date.now(),
     };
 
-    await saveTrack(record);
+    await saveRecord(TRACK_STORE, record);
 
     const deletedTrack = {
       ...track,
       deletedAt: record.deletedAt,
     };
 
-    trackMapRef.current.set(track.id, deletedTrack);
-
-    setTracks((existing) =>
-      existing.filter((item) => item.id !== track.id)
-    );
+    setTracks((existing) => existing.filter((item) => item.id !== track.id));
     setDeletedTracks((existing) => [deletedTrack, ...existing]);
+
+    setFavorites((existing) => existing.filter((id) => id !== track.id));
+
+    setCollections((existing) =>
+      existing.map((collection) => {
+        if (!collection.trackIds?.includes(track.id)) return collection;
+
+        const updatedCollection = {
+          ...collection,
+          trackIds: collection.trackIds.filter((id) => id !== track.id),
+          updatedAt: Date.now(),
+        };
+
+        saveRecord(COLLECTION_STORE, updatedCollection).catch(() => {});
+        return updatedCollection;
+      })
+    );
 
     if (track.id === activeTrackId) {
       pause();
@@ -627,40 +866,174 @@ export default function PlayerShell() {
       deletedAt: null,
     };
 
-    await saveTrack(record);
+    await saveRecord(TRACK_STORE, record);
 
     const restoredTrack = {
       ...track,
       deletedAt: null,
     };
 
-    trackMapRef.current.set(track.id, restoredTrack);
-
     setDeletedTracks((existing) =>
       existing.filter((item) => item.id !== track.id)
     );
+
     setTracks((existing) => [restoredTrack, ...existing]);
   };
 
   const permanentlyDeleteTrack = async (track) => {
     if (!track) return;
 
-    await deleteTrackFromDatabase(track.id);
-
+    await deleteRecord(TRACK_STORE, track.id);
     releaseTrackUrl(track);
-    trackMapRef.current.delete(track.id);
 
     setDeletedTracks((existing) =>
       existing.filter((item) => item.id !== track.id)
     );
 
-    setFavorites((existing) =>
-      existing.filter((id) => id !== track.id)
+    setFavorites((existing) => existing.filter((id) => id !== track.id));
+  };
+
+  const createCollection = async () => {
+    const name = collectionName.trim();
+
+    if (!name || !collectionModal) return;
+
+    const collection = {
+      id: crypto.randomUUID(),
+      name,
+      type: collectionModal,
+      cover: makeCollectionCover(collectionModal, name),
+      trackIds: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      deletedAt: null,
+    };
+
+    await saveRecord(COLLECTION_STORE, collection);
+
+    setCollections((existing) => [collection, ...existing]);
+    setCollectionName("");
+    setCollectionModal(null);
+  };
+
+  const moveCollectionToTrash = async (collection) => {
+    if (!collection) return;
+
+    const deletedCollection = {
+      ...collection,
+      deletedAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    await saveRecord(COLLECTION_STORE, deletedCollection);
+
+    setCollections((existing) =>
+      existing.filter((item) => item.id !== collection.id)
+    );
+
+    setDeletedCollections((existing) => [deletedCollection, ...existing]);
+
+    if (selectedCollectionId === collection.id) {
+      setSelectedCollectionId(null);
+    }
+  };
+
+  const restoreCollection = async (collection) => {
+    const restoredCollection = {
+      ...collection,
+      deletedAt: null,
+      updatedAt: Date.now(),
+    };
+
+    await saveRecord(COLLECTION_STORE, restoredCollection);
+
+    setDeletedCollections((existing) =>
+      existing.filter((item) => item.id !== collection.id)
+    );
+
+    setCollections((existing) => [restoredCollection, ...existing]);
+  };
+
+  const permanentlyDeleteCollection = async (collection) => {
+    await deleteRecord(COLLECTION_STORE, collection.id);
+
+    setDeletedCollections((existing) =>
+      existing.filter((item) => item.id !== collection.id)
+    );
+  };
+
+  const addTrackToCollection = async (trackId) => {
+    if (!selectedCollection) return;
+
+    if (selectedCollection.trackIds?.includes(trackId)) return;
+
+    const updatedCollection = {
+      ...selectedCollection,
+      trackIds: [...(selectedCollection.trackIds || []), trackId],
+      updatedAt: Date.now(),
+    };
+
+    await saveRecord(COLLECTION_STORE, updatedCollection);
+
+    setCollections((existing) =>
+      existing.map((collection) =>
+        collection.id === updatedCollection.id ? updatedCollection : collection
+      )
+    );
+  };
+
+  const removeTrackFromCollection = async (trackId) => {
+    if (!selectedCollection) return;
+
+    const updatedCollection = {
+      ...selectedCollection,
+      trackIds: (selectedCollection.trackIds || []).filter(
+        (id) => id !== trackId
+      ),
+      updatedAt: Date.now(),
+    };
+
+    await saveRecord(COLLECTION_STORE, updatedCollection);
+
+    setCollections((existing) =>
+      existing.map((collection) =>
+        collection.id === updatedCollection.id ? updatedCollection : collection
+      )
     );
   };
 
   const recoverableDeletedTracks = deletedTracks.filter(
     (track) => Date.now() - track.deletedAt <= TEN_DAYS_MS
+  );
+
+  const recoverableDeletedCollections = deletedCollections.filter(
+    (collection) => Date.now() - collection.deletedAt <= TEN_DAYS_MS
+  );
+
+  const openCollection = (collection) => {
+    setSelectedCollectionId(collection.id);
+    setSection("home");
+  };
+
+  const CollectionCard = ({ collection }) => (
+    <button
+      type="button"
+      onClick={() => openCollection(collection)}
+      className="min-w-0 text-left active:scale-[0.98]"
+    >
+      <div className="aspect-square overflow-hidden rounded-2xl border border-white/10 bg-[#101a2d]">
+        <img
+          src={collection.cover}
+          alt=""
+          className="h-full w-full object-cover"
+        />
+      </div>
+      <p className="mt-2 truncate text-sm font-semibold">{collection.name}</p>
+      <p className="truncate text-xs text-zinc-400">
+        {collection.type === "album" ? "Album" : "Playlist"} ·{" "}
+        {collection.trackIds?.length || 0} tracks
+      </p>
+    </button>
   );
 
   return (
@@ -675,8 +1048,8 @@ export default function PlayerShell() {
             </div>
           )}
 
-          {ready && section === "home" && (
-            <section className="space-y-4">
+          {ready && section === "home" && !selectedCollection && (
+            <section className="space-y-5">
               <div className="flex items-center gap-3">
                 <div className="grid h-12 w-12 place-items-center rounded-2xl bg-white/5 text-[#7db6ff]">
                   <Music2 />
@@ -685,7 +1058,7 @@ export default function PlayerShell() {
                 <div>
                   <h1 className="text-lg font-semibold">Audify</h1>
                   <p className="text-sm text-zinc-400">
-                    Your local audio library
+                    Your local music library
                   </p>
                 </div>
               </div>
@@ -708,89 +1081,300 @@ export default function PlayerShell() {
                   <p className="mt-2 text-2xl font-bold">{tracks.length}</p>
                 </div>
 
-                <div className="rounded-2xl border border-white/10 bg-[#16161a] p-4">
+                <button
+                  type="button"
+                  onClick={() => setSection("favorites")}
+                  className="rounded-2xl border border-white/10 bg-[#16161a] p-4 text-left active:scale-[0.98]"
+                >
                   <p className="text-sm text-zinc-400">Favorites</p>
                   <p className="mt-2 text-2xl font-bold">
-                    {favorites.length}
+                    {favoriteTracks.length}
                   </p>
-                </div>
+                </button>
               </div>
 
               <div className="rounded-2xl border border-white/10 bg-[#16161a] p-4">
                 <div className="mb-3 flex items-center gap-2 text-sm text-zinc-400">
                   <Search size={16} />
-                  Search
+                  Search library
                 </div>
 
                 <input
                   value={searchText}
                   onChange={(event) => setSearchText(event.target.value)}
-                  placeholder="Search tracks"
+                  placeholder="Search tracks or artists"
                   className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-white outline-none placeholder:text-zinc-600"
                 />
               </div>
 
-              <div className="space-y-3">
-                {filteredTracks.length === 0 && (
-                  <div className="rounded-2xl border border-dashed border-white/10 p-8 text-center text-sm text-zinc-500">
-                    Import an MP3 or MP4 to start.
+              <div className="flex gap-2 overflow-x-auto pb-1">
+                {[
+                  ["tracks", "Tracks", Music2],
+                  ["albums", "Albums", Album],
+                  ["playlists", "Playlists", ListMusic],
+                  ["artists", "Artists", UserRound],
+                ].map(([value, label, Icon]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setLibraryView(value)}
+                    className={`flex shrink-0 items-center gap-2 rounded-full px-4 py-2 text-sm transition active:scale-95 ${
+                      libraryView === value
+                        ? "bg-white text-black"
+                        : "bg-white/5 text-zinc-300"
+                    }`}
+                  >
+                    <Icon size={16} />
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {libraryView === "tracks" && (
+                <div className="space-y-3">
+                  {filteredTracks.length === 0 ? (
+                    <EmptyState>Import an MP3 or MP4 to start.</EmptyState>
+                  ) : (
+                    filteredTracks.map((track) => (
+                      <TrackRow
+                        key={track.id}
+                        track={track}
+                        isFavorite={favorites.includes(track.id)}
+                        isSelected={activeTrackId === track.id}
+                        onSelect={selectTrack}
+                        onToggleFavorite={toggleFavorite}
+                      />
+                    ))
+                  )}
+                </div>
+              )}
+
+              {libraryView === "albums" && (
+                <div className="space-y-4">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCollectionName("");
+                      setCollectionModal("album");
+                    }}
+                    className="flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-[#7db6ff]/40 bg-[#7db6ff]/5 px-4 py-4 text-sm font-medium text-[#b9d7fb] active:scale-[0.99]"
+                  >
+                    <Plus size={17} />
+                    Create album
+                  </button>
+
+                  {albumCollections.length === 0 ? (
+                    <EmptyState>No albums yet.</EmptyState>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+                      {albumCollections.map((collection) => (
+                        <CollectionCard
+                          key={collection.id}
+                          collection={collection}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {libraryView === "playlists" && (
+                <div className="space-y-4">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCollectionName("");
+                      setCollectionModal("playlist");
+                    }}
+                    className="flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-[#b99aff]/40 bg-[#8d68ef]/5 px-4 py-4 text-sm font-medium text-[#d9ccff] active:scale-[0.99]"
+                  >
+                    <Plus size={17} />
+                    Create playlist
+                  </button>
+
+                  {playlistCollections.length === 0 ? (
+                    <EmptyState>No playlists yet.</EmptyState>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+                      {playlistCollections.map((collection) => (
+                        <CollectionCard
+                          key={collection.id}
+                          collection={collection}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {libraryView === "artists" && (
+                <div className="space-y-3">
+                  {artists.length === 0 ? (
+                    <EmptyState>Artists appear after you import tracks.</EmptyState>
+                  ) : (
+                    artists.map((artist) => (
+                      <div
+                        key={artist.name}
+                        className="flex items-center gap-3 rounded-2xl border border-white/10 bg-[#16161a] px-4 py-3"
+                      >
+                        <div className="grid h-12 w-12 place-items-center rounded-2xl bg-[#0b1020] text-[#7db6ff]">
+                          <UserRound size={20} />
+                        </div>
+                        <div>
+                          <p className="font-medium">{artist.name}</p>
+                          <p className="text-sm text-zinc-400">
+                            {artist.total} {artist.total === 1 ? "track" : "tracks"}
+                          </p>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </section>
+          )}
+
+          {ready && section === "home" && selectedCollection && (
+            <section className="space-y-4">
+              <button
+                type="button"
+                onClick={() => setSelectedCollectionId(null)}
+                className="flex items-center gap-2 rounded-full bg-white/5 px-4 py-2 text-sm text-zinc-300 active:scale-95"
+              >
+                <ChevronLeft size={17} />
+                Library
+              </button>
+
+              <div className="overflow-hidden rounded-[28px] border border-white/10 bg-[#16161a]">
+                <div className="aspect-[16/8] bg-[#0b1020]">
+                  <img
+                    src={selectedCollection.cover}
+                    alt=""
+                    className="h-full w-full object-cover"
+                  />
+                </div>
+
+                <div className="p-5">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#92bff4]">
+                    {selectedCollection.type}
+                  </p>
+                  <h1 className="mt-2 text-2xl font-bold">
+                    {selectedCollection.name}
+                  </h1>
+                  <p className="mt-1 text-sm text-zinc-400">
+                    {collectionTracks.length}{" "}
+                    {collectionTracks.length === 1 ? "track" : "tracks"}
+                  </p>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-[#16161a] p-4">
+                <p className="mb-3 text-sm font-medium">Add tracks</p>
+
+                {tracks.length === 0 ? (
+                  <p className="text-sm text-zinc-500">
+                    Import tracks before adding them here.
+                  </p>
+                ) : (
+                  <div className="max-h-52 space-y-2 overflow-y-auto pr-1">
+                    {tracks.map((track) => {
+                      const exists = selectedCollection.trackIds?.includes(
+                        track.id
+                      );
+
+                      return (
+                        <button
+                          key={track.id}
+                          type="button"
+                          disabled={exists}
+                          onClick={() => addTrackToCollection(track.id)}
+                          className={`flex w-full items-center justify-between rounded-xl px-3 py-3 text-left text-sm ${
+                            exists
+                              ? "cursor-not-allowed bg-white/[0.03] text-zinc-600"
+                              : "bg-white/5 text-zinc-200 active:scale-[0.99]"
+                          }`}
+                        >
+                          <span className="truncate">{track.title}</span>
+                          <span className="ml-3 shrink-0 text-xs">
+                            {exists ? "Added" : "Add"}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
+              </div>
 
-                {filteredTracks.map((track) => {
-                  const favorite = favorites.includes(track.id);
-                  const selected = activeTrackId === track.id;
-
-                  return (
-                    <article
+              <div className="space-y-3">
+                {collectionTracks.length === 0 ? (
+                  <EmptyState>No tracks in this collection yet.</EmptyState>
+                ) : (
+                  collectionTracks.map((track) => (
+                    <TrackRow
                       key={track.id}
-                      className={`flex items-center gap-3 rounded-2xl border px-4 py-3 ${
-                        selected
-                          ? "border-[#7db6ff]/60 bg-[#7db6ff]/10"
-                          : "border-white/10 bg-[#16161a]"
-                      }`}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => selectTrack(track)}
-                        className="flex min-w-0 flex-1 items-center gap-3 text-left"
-                      >
-                        <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-[#0b1020] text-xl text-[#7db6ff]">
-                          {track.thumbnail ? (
-                            <img
-                              src={track.thumbnail}
-                              alt=""
-                              className="h-full w-full object-cover"
-                            />
-                          ) : (
-                            "♫"
-                          )}
-                        </div>
+                      track={track}
+                      isFavorite={favorites.includes(track.id)}
+                      isSelected={activeTrackId === track.id}
+                      onSelect={selectTrack}
+                      onToggleFavorite={toggleFavorite}
+                      rightAction={
+                        <button
+                          type="button"
+                          onClick={() => removeTrackFromCollection(track.id)}
+                          className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-white/5 text-zinc-300 active:scale-95"
+                          aria-label="Remove from collection"
+                        >
+                          <X size={17} />
+                        </button>
+                      }
+                    />
+                  ))
+                )}
+              </div>
 
-                        <div className="min-w-0">
-                          <p className="truncate font-medium">
-                            {track.title}
-                          </p>
-                          <p className="truncate text-sm text-zinc-400">
-                            {track.artist}
-                          </p>
-                        </div>
-                      </button>
+              <button
+                type="button"
+                onClick={() => moveCollectionToTrash(selectedCollection)}
+                className="flex w-full items-center justify-center gap-2 rounded-2xl border border-red-300/15 bg-red-300/[0.06] px-4 py-4 text-sm font-medium text-red-200 active:scale-[0.99]"
+              >
+                <Trash2 size={17} />
+                Move {selectedCollection.type} to trash
+              </button>
+            </section>
+          )}
 
-                      <button
-                        type="button"
-                        onClick={() => toggleFavorite(track.id)}
-                        className="grid h-11 w-11 place-items-center rounded-full bg-white/5 active:scale-95"
-                        aria-label="Favorite track"
-                      >
-                        <Heart
-                          size={17}
-                          className={favorite ? "fill-white text-white" : ""}
-                        />
-                      </button>
-                    </article>
-                  );
-                })}
+          {ready && section === "favorites" && (
+            <section className="space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="grid h-12 w-12 place-items-center rounded-2xl bg-red-400/10 text-red-200">
+                  <Heart className="fill-current" />
+                </div>
+
+                <div>
+                  <h1 className="text-lg font-semibold">Favorites</h1>
+                  <p className="text-sm text-zinc-400">
+                    Your liked tracks
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {favoriteTracks.length === 0 ? (
+                  <EmptyState>
+                    Tap the heart on a track to add it here.
+                  </EmptyState>
+                ) : (
+                  favoriteTracks.map((track) => (
+                    <TrackRow
+                      key={track.id}
+                      track={track}
+                      isFavorite
+                      isSelected={activeTrackId === track.id}
+                      onSelect={selectTrack}
+                      onToggleFavorite={toggleFavorite}
+                    />
+                  ))
+                )}
               </div>
             </section>
           )}
@@ -805,52 +1389,36 @@ export default function PlayerShell() {
                 <div>
                   <h1 className="text-lg font-semibold">Files</h1>
                   <p className="text-sm text-zinc-400">
-                    Manage your local library
+                    Manage imported media
                   </p>
                 </div>
               </div>
 
               <div className="space-y-3">
-                {tracks.length === 0 && (
-                  <div className="rounded-2xl border border-dashed border-white/10 p-8 text-center text-sm text-zinc-500">
-                    No local files yet.
-                  </div>
+                {tracks.length === 0 ? (
+                  <EmptyState>No local files yet.</EmptyState>
+                ) : (
+                  tracks.map((track) => (
+                    <TrackRow
+                      key={track.id}
+                      track={track}
+                      isFavorite={favorites.includes(track.id)}
+                      isSelected={activeTrackId === track.id}
+                      onSelect={selectTrack}
+                      onToggleFavorite={toggleFavorite}
+                      rightAction={
+                        <button
+                          type="button"
+                          onClick={() => moveToTrash(track)}
+                          className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-white/5 active:scale-95"
+                          aria-label="Move file to trash"
+                        >
+                          <Trash2 size={17} />
+                        </button>
+                      }
+                    />
+                  ))
                 )}
-
-                {tracks.map((track) => (
-                  <article
-                    key={track.id}
-                    className="flex items-center gap-3 rounded-2xl border border-white/10 bg-[#16161a] px-4 py-3"
-                  >
-                    <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-[#0b1020] text-xl text-[#7db6ff]">
-                      {track.thumbnail ? (
-                        <img
-                          src={track.thumbnail}
-                          alt=""
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        "♫"
-                      )}
-                    </div>
-
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate font-medium">{track.title}</p>
-                      <p className="truncate text-sm text-zinc-400">
-                        Added {formatDate(track.createdAt)}
-                      </p>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => moveToTrash(track)}
-                      className="grid h-11 w-11 place-items-center rounded-full bg-white/5 active:scale-95"
-                      aria-label="Move file to trash"
-                    >
-                      <Trash2 size={17} />
-                    </button>
-                  </article>
-                ))}
               </div>
             </section>
           )}
@@ -865,7 +1433,7 @@ export default function PlayerShell() {
                 <div>
                   <h1 className="text-lg font-semibold">Settings</h1>
                   <p className="text-sm text-zinc-400">
-                    Equalizer and deleted files
+                    Equalizer and trash
                   </p>
                 </div>
               </div>
@@ -994,15 +1562,17 @@ export default function PlayerShell() {
 
               <div className="rounded-2xl border border-white/10 bg-[#16161a] p-4">
                 <div className="mb-3 flex items-center justify-between">
-                  <p className="font-medium">Trash</p>
+                  <div>
+                    <p className="font-medium">Files trash</p>
+                    <p className="mt-1 text-sm text-zinc-400">
+                      Deleted files can be restored for 10 days.
+                    </p>
+                  </div>
+
                   <span className="text-sm text-zinc-400">
-                    {recoverableDeletedTracks.length} recoverable
+                    {recoverableDeletedTracks.length}
                   </span>
                 </div>
-
-                <p className="mb-4 text-sm text-zinc-400">
-                  Deleted files can be restored for 10 days.
-                </p>
 
                 <div className="space-y-3">
                   {deletedTracks.length === 0 && (
@@ -1053,6 +1623,77 @@ export default function PlayerShell() {
                   })}
                 </div>
               </div>
+
+              <div className="rounded-2xl border border-white/10 bg-[#16161a] p-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <div>
+                    <p className="font-medium">Albums & playlists trash</p>
+                    <p className="mt-1 text-sm text-zinc-400">
+                      Deleted collections can be restored for 10 days.
+                    </p>
+                  </div>
+
+                  <span className="text-sm text-zinc-400">
+                    {recoverableDeletedCollections.length}
+                  </span>
+                </div>
+
+                <div className="space-y-3">
+                  {deletedCollections.length === 0 && (
+                    <p className="text-sm text-zinc-500">
+                      No deleted albums or playlists.
+                    </p>
+                  )}
+
+                  {deletedCollections.map((collection) => {
+                    const expired =
+                      Date.now() - collection.deletedAt > TEN_DAYS_MS;
+
+                    return (
+                      <article
+                        key={collection.id}
+                        className="rounded-2xl border border-white/10 bg-black/20 p-3"
+                      >
+                        <p className="truncate font-medium">
+                          {collection.name}
+                        </p>
+
+                        <p className="mt-1 text-xs text-zinc-400">
+                          {collection.type} ·{" "}
+                          {expired
+                            ? "Recovery period expired"
+                            : `Deleted ${formatDate(collection.deletedAt)}`}
+                        </p>
+
+                        <div className="mt-3 flex gap-2">
+                          <button
+                            type="button"
+                            disabled={expired}
+                            onClick={() => restoreCollection(collection)}
+                            className={`rounded-full px-4 py-2 text-sm ${
+                              expired
+                                ? "cursor-not-allowed bg-white/5 text-zinc-600"
+                                : "bg-white/10 text-white active:scale-95"
+                            }`}
+                          >
+                            Restore
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              permanentlyDeleteCollection(collection)
+                            }
+                            className="rounded-full bg-white/5 px-4 py-2 text-sm text-zinc-300 active:scale-95"
+                          >
+                            Delete forever
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              </div>
             </section>
           )}
         </div>
@@ -1076,12 +1717,139 @@ export default function PlayerShell() {
         setMode={setMode}
       />
 
+      {collectionModal && (
+        <div
+          className="fixed inset-0 z-[80] flex items-end bg-black/70 p-4 backdrop-blur-sm sm:items-center sm:justify-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="collection-modal-title"
+        >
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              createCollection();
+            }}
+            className="w-full max-w-md rounded-[28px] border border-white/10 bg-[#17171b] p-5 shadow-2xl"
+          >
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p
+                  id="collection-modal-title"
+                  className="text-lg font-semibold"
+                >
+                  Create {collectionModal}
+                </p>
+                <p className="mt-1 text-sm text-zinc-400">
+                  Your collection remains on this device.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setCollectionModal(null)}
+                className="grid h-10 w-10 place-items-center rounded-full bg-white/5"
+                aria-label="Close"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <input
+              autoFocus
+              value={collectionName}
+              onChange={(event) => setCollectionName(event.target.value)}
+              placeholder={
+                collectionModal === "album"
+                  ? "Album name"
+                  : "Playlist name"
+              }
+              className="mt-5 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none placeholder:text-zinc-600"
+            />
+
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setCollectionModal(null)}
+                className="flex-1 rounded-xl bg-white/5 px-4 py-3 text-sm font-medium text-zinc-300"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="submit"
+                disabled={!collectionName.trim()}
+                className="flex-1 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-black disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Create
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {duplicateNames.length > 0 && (
+        <div
+          className="fixed inset-0 z-[90] flex items-end bg-black/70 p-4 backdrop-blur-sm sm:items-center sm:justify-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="duplicates-modal-title"
+        >
+          <div className="w-full max-w-md rounded-[28px] border border-white/10 bg-[#17171b] p-5 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p
+                  id="duplicates-modal-title"
+                  className="text-lg font-semibold"
+                >
+                  Duplicate tracks skipped
+                </p>
+                <p className="mt-1 text-sm text-zinc-400">
+                  These files are already present in your library and were not
+                  imported.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setDuplicateNames([])}
+                className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white/5"
+                aria-label="Close duplicate dialog"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="mt-4 max-h-52 space-y-2 overflow-y-auto">
+              {duplicateNames.map((name, index) => (
+                <div
+                  key={`${name}-${index}`}
+                  className="truncate rounded-xl border border-white/10 bg-black/20 px-3 py-3 text-sm text-zinc-200"
+                >
+                  {name}
+                </div>
+              ))}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setDuplicateNames([])}
+              className="mt-5 w-full rounded-xl bg-white px-4 py-3 text-sm font-semibold text-black active:scale-[0.99]"
+            >
+              Got it
+            </button>
+          </div>
+        </div>
+      )}
+
       <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-[#0c0c0f]/95 backdrop-blur-xl">
-        <div className="mx-auto grid max-w-5xl grid-cols-3 gap-2 px-4 py-3">
+        <div className="mx-auto grid max-w-5xl grid-cols-4 gap-1 px-3 py-3">
           <button
             type="button"
-            onClick={() => setSection("home")}
-            className={`flex min-h-11 flex-col items-center justify-center rounded-2xl px-3 py-2 text-xs ${
+            onClick={() => {
+              setSelectedCollectionId(null);
+              setSection("home");
+            }}
+            className={`flex min-h-11 flex-col items-center justify-center rounded-2xl px-2 py-2 text-[11px] ${
               section === "home"
                 ? "bg-white/10 text-white"
                 : "text-zinc-400"
@@ -1093,8 +1861,21 @@ export default function PlayerShell() {
 
           <button
             type="button"
+            onClick={() => setSection("favorites")}
+            className={`flex min-h-11 flex-col items-center justify-center rounded-2xl px-2 py-2 text-[11px] ${
+              section === "favorites"
+                ? "bg-white/10 text-white"
+                : "text-zinc-400"
+            }`}
+          >
+            <Heart size={18} />
+            Favorites
+          </button>
+
+          <button
+            type="button"
             onClick={() => setSection("files")}
-            className={`flex min-h-11 flex-col items-center justify-center rounded-2xl px-3 py-2 text-xs ${
+            className={`flex min-h-11 flex-col items-center justify-center rounded-2xl px-2 py-2 text-[11px] ${
               section === "files"
                 ? "bg-white/10 text-white"
                 : "text-zinc-400"
@@ -1107,7 +1888,7 @@ export default function PlayerShell() {
           <button
             type="button"
             onClick={() => setSection("settings")}
-            className={`flex min-h-11 flex-col items-center justify-center rounded-2xl px-3 py-2 text-xs ${
+            className={`flex min-h-11 flex-col items-center justify-center rounded-2xl px-2 py-2 text-[11px] ${
               section === "settings"
                 ? "bg-white/10 text-white"
                 : "text-zinc-400"
