@@ -2,63 +2,63 @@
 @tailwind components;
 @tailwind utilities;
 
-html,
-body {
-  margin: 0;
-  padding: 0;
-  background: #09090b;
-  color: white;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+:root {
+  color-scheme: dark;
 }
 
 * {
   box-sizing: border-box;
 }
 
+html {
+  background: #09090b;
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  background: #09090b;
+  color: #ffffff;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
+}
+
 button,
-input,
-a {
-  -webkit-tap-highlight-color: transparent;
+input {
+  font: inherit;
 }
 
 button {
-  touch-action: manipulation;
-}
-
-img,
-video {
-  display: block;
-  max-width: 100%;
+  -webkit-tap-highlight-color: transparent;
 }
 
 input[type="range"] {
-  accent-color: #7db6ff;
+  accent-color: #79a9e8;
 }
 
-@media (any-pointer: coarse) {
-  button,
-  a,
-  input {
-    min-height: 44px;
-  }
-}
 .eq-vertical-slider {
   appearance: slider-vertical;
   -webkit-appearance: slider-vertical;
   writing-mode: vertical-lr;
   direction: rtl;
   background: transparent;
-  accent-color: #7db6ff;
   opacity: 0;
   touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .eq-vertical-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
+  width: 40px;
+  height: 20px;
 }
 
 .eq-vertical-slider::-moz-range-thumb {
+  width: 40px;
+  height: 20px;
   border: 0;
   background: transparent;
 }
