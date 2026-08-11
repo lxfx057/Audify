@@ -238,7 +238,6 @@ export default function PlayerShell() {
       try {
         const records = await getSavedTracks();
         const now = Date.now();
-
         const activeRecords = [];
         const deletedRecords = [];
 
@@ -857,7 +856,7 @@ export default function PlayerShell() {
                 </div>
               </div>
 
-              <div className="overflow-hidden rounded-[28px] border border-[#29334a] bg-[radial-gradient(circle_at_top,#17213a_0%,#0d1018_52%,#080a0f_100%)] p-5 shadow-[0_12px_38px_rgba(0,0,0,0.35)]">
+              <div className="overflow-hidden rounded-[28px] border border-white/10 bg-[#101116] p-5">
                 <div className="mb-5 flex items-center justify-between">
                   <div>
                     <p className="text-lg font-semibold text-white">
@@ -873,7 +872,7 @@ export default function PlayerShell() {
                     onClick={() => setEqEnabled((value) => !value)}
                     className={`rounded-full px-4 py-2 text-xs font-semibold transition active:scale-95 ${
                       eqEnabled
-                        ? "bg-[#7db6ff] text-[#07111f]"
+                        ? "bg-[#79a9e8] text-[#07111f]"
                         : "bg-white/10 text-zinc-400"
                     }`}
                   >
@@ -882,7 +881,7 @@ export default function PlayerShell() {
                 </div>
 
                 <div
-                  className={`rounded-2xl border border-white/10 bg-black/25 px-3 pb-4 pt-5 ${
+                  className={`rounded-2xl border border-white/10 bg-black/20 px-3 pb-4 pt-5 ${
                     eqEnabled ? "" : "pointer-events-none opacity-40"
                   }`}
                 >
@@ -892,7 +891,7 @@ export default function PlayerShell() {
                     <span>-12 dB</span>
                   </div>
 
-                  <div className="flex min-h-[250px] items-end justify-between gap-2">
+                  <div className="flex min-h-[270px] items-end justify-between gap-2">
                     {EQ_BANDS.map((band, index) => {
                       const value = eqValues[index];
                       const percentage = ((value + 12) / 24) * 100;
@@ -902,16 +901,16 @@ export default function PlayerShell() {
                           key={band.frequency}
                           className="flex min-w-0 flex-1 flex-col items-center gap-3"
                         >
-                          <div className="relative flex h-[190px] w-full max-w-[34px] items-center justify-center">
+                          <div className="relative flex h-[210px] w-full max-w-[40px] items-center justify-center">
                             <div className="absolute inset-x-0 top-0 h-px bg-white/10" />
-                            <div className="absolute inset-x-0 top-1/4 h-px bg-white/10" />
-                            <div className="absolute inset-x-0 top-1/2 h-px bg-[#7db6ff]/30" />
-                            <div className="absolute inset-x-0 top-3/4 h-px bg-white/10" />
+                            <div className="absolute inset-x-0 top-1/4 h-px bg-white/[0.07]" />
+                            <div className="absolute inset-x-0 top-1/2 h-px bg-white/15" />
+                            <div className="absolute inset-x-0 top-3/4 h-px bg-white/[0.07]" />
                             <div className="absolute inset-x-0 bottom-0 h-px bg-white/10" />
 
-                            <div className="absolute left-1/2 top-0 h-full w-[4px] -translate-x-1/2 rounded-full bg-[#05070c] ring-1 ring-white/10">
+                            <div className="absolute left-1/2 top-2 h-[194px] w-[5px] -translate-x-1/2 rounded-full bg-[#06080d] ring-1 ring-white/10">
                               <div
-                                className="absolute bottom-0 left-0 w-full rounded-full bg-gradient-to-t from-[#2776e7] via-[#62a4ff] to-[#b2d6ff] opacity-90 transition-all duration-150"
+                                className="absolute bottom-0 left-0 w-full rounded-full bg-[#4e8fe8] transition-all duration-100"
                                 style={{ height: `${percentage}%` }}
                               />
                             </div>
@@ -929,14 +928,14 @@ export default function PlayerShell() {
                                 );
                                 setEqValues(nextValues);
                               }}
-                              className="eq-vertical-slider absolute z-20 h-[190px] w-[34px] cursor-pointer"
+                              className="eq-vertical-slider absolute z-30 h-[210px] w-[40px] cursor-ns-resize"
                               aria-label={`${band.label} equalizer`}
                             />
 
                             <div
-                              className="pointer-events-none absolute left-1/2 z-10 h-5 w-5 -translate-x-1/2 rounded-full border border-white/40 bg-[#d9ecff] shadow-[0_0_14px_rgba(125,182,255,0.75)] transition-all duration-150"
+                              className="pointer-events-none absolute left-1/2 z-20 h-4 w-4 -translate-x-1/2 rounded-full border border-[#a8caff] bg-[#d9e8ff] shadow-[0_1px_3px_rgba(0,0,0,0.55)] transition-all duration-100"
                               style={{
-                                bottom: `calc(${percentage}% - 10px)`,
+                                bottom: `calc(${percentage}% - 8px)`,
                               }}
                             />
                           </div>
@@ -947,9 +946,9 @@ export default function PlayerShell() {
                                 .replace(" Hz", "")
                                 .replace(" kHz", "K")}
                             </p>
-                            <p className="mt-1 text-[9px] text-[#7db6ff]">
+                            <p className="mt-1 text-[9px] text-[#91bdf3]">
                               {value > 0 ? "+" : ""}
-                              {value}
+                              {value} dB
                             </p>
                           </div>
                         </div>
@@ -972,7 +971,7 @@ export default function PlayerShell() {
                   <button
                     type="button"
                     onClick={() => setEqValues([7, 4, 2, 0, -1, 2, 5])}
-                    className="flex-1 rounded-xl border border-[#7db6ff]/30 bg-[#7db6ff]/10 px-3 py-3 text-sm font-medium text-[#b8d8ff] transition active:scale-[0.98]"
+                    className="flex-1 rounded-xl border border-[#719fd6]/30 bg-[#719fd6]/10 px-3 py-3 text-sm font-medium text-[#bdd9fa] transition active:scale-[0.98]"
                   >
                     Bass Boost
                   </button>
