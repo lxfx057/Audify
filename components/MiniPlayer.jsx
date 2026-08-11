@@ -55,7 +55,7 @@ export default function MiniPlayer({
       <div className="flex h-[88px] items-center gap-3 px-4">
         <button
           type="button"
-          onClick={() => setExpanded((value) => !value)}
+          onClick={() => setExpanded((state) => !state)}
           className="flex min-w-0 flex-1 items-center gap-3 text-left"
           aria-label="Open player"
         >
@@ -104,7 +104,7 @@ export default function MiniPlayer({
 
         <button
           type="button"
-          onClick={() => setExpanded((value) => !value)}
+          onClick={() => setExpanded((state) => !state)}
           className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-white/5 text-white active:scale-95"
           aria-label="Expand player"
         >
