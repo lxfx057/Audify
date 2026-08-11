@@ -163,6 +163,10 @@ function formatDate(timestamp) {
   }).format(new Date(timestamp));
 }
 
+function formatEqValue(value) {
+  return `${value > 0 ? "+" : ""}${value} dB`;
+}
+
 export default function PlayerShell() {
   const [tracks, setTracks] = useState([]);
   const [deletedTracks, setDeletedTracks] = useState([]);
@@ -234,12 +238,12 @@ export default function PlayerShell() {
   useEffect(() => {
     let alive = true;
 
-    const loadLibrary = async () => {
+    async function loadLibrary() {
       try {
         const records = await getSavedTracks();
         const now = Date.now();
-        const activeRecords = [];
-        const deletedRecords = [];
+        const availableTracks = [];
+        const trashTracks = [];
 
         for (const record of records) {
           if (record.deletedAt && now - record.deletedAt > TEN_DAYS_MS) {
@@ -250,27 +254,30 @@ export default function PlayerShell() {
           const track = createTrackFromRecord(record);
 
           if (track.deletedAt) {
-            deletedRecords.push(track);
+            trashTracks.push(track);
           } else {
-            activeRecords.push(track);
+            availableTracks.push(track);
           }
         }
 
         if (!alive) {
-          [...activeRecords, ...deletedRecords].forEach(releaseTrackUrl);
+          [...availableTracks, ...trashTracks].forEach(releaseTrackUrl);
           return;
         }
 
         trackMapRef.current = new Map(
-          [...activeRecords, ...deletedRecords].map((track) => [
+          [...availableTracks, ...trashTracks].map((track) => [
             track.id,
             track,
           ])
         );
 
-        setTracks(activeRecords.sort((a, b) => b.createdAt - a.createdAt));
+        setTracks(
+          availableTracks.sort((first, second) => second.createdAt - first.createdAt)
+        );
+
         setDeletedTracks(
-          deletedRecords.sort((a, b) => b.deletedAt - a.deletedAt)
+          trashTracks.sort((first, second) => second.deletedAt - first.deletedAt)
         );
       } catch (error) {
         console.error("Cannot load local library", error);
@@ -279,7 +286,7 @@ export default function PlayerShell() {
           setReady(true);
         }
       }
-    };
+    }
 
     loadLibrary();
 
@@ -347,6 +354,16 @@ export default function PlayerShell() {
     });
   }, [eqEnabled, eqValues]);
 
+  function updateEqBand(index, value) {
+    const safeValue = Math.max(-12, Math.min(12, Number(value)));
+
+    setEqValues((currentValues) => {
+      const nextValues = [...currentValues];
+      nextValues[index] = safeValue;
+      return nextValues;
+    });
+  }
+
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -377,9 +394,7 @@ export default function PlayerShell() {
       let nextTrack;
 
       if (modeRef.current === "shuffle") {
-        const otherTracks = allTracks.filter(
-          (track) => track.id !== currentId
-        );
+        const otherTracks = allTracks.filter((track) => track.id !== currentId);
 
         nextTrack =
           otherTracks[Math.floor(Math.random() * otherTracks.length)] ||
@@ -486,9 +501,7 @@ export default function PlayerShell() {
     if (!tracks.length || !activeTrackId) return;
 
     if (mode === "shuffle") {
-      const otherTracks = tracks.filter(
-        (track) => track.id !== activeTrackId
-      );
+      const otherTracks = tracks.filter((track) => track.id !== activeTrackId);
 
       const nextTrack =
         otherTracks[Math.floor(Math.random() * otherTracks.length)] ||
@@ -640,6 +653,7 @@ export default function PlayerShell() {
     setDeletedTracks((existing) =>
       existing.filter((item) => item.id !== track.id)
     );
+
     setFavorites((existing) =>
       existing.filter((id) => id !== track.id)
     );
@@ -863,7 +877,7 @@ export default function PlayerShell() {
                       Graphic Equalizer
                     </p>
                     <p className="mt-1 text-xs text-zinc-400">
-                      Adjust frequencies from -12 dB to +12 dB
+                      Drag each band up or down
                     </p>
                   </div>
 
@@ -882,7 +896,7 @@ export default function PlayerShell() {
 
                 <div
                   className={`rounded-2xl border border-white/10 bg-black/20 px-3 pb-4 pt-5 ${
-                    eqEnabled ? "" : "pointer-events-none opacity-40"
+                    eqEnabled ? "" : "opacity-40"
                   }`}
                 >
                   <div className="mb-3 flex items-center justify-between px-1 text-[10px] font-medium uppercase tracking-[0.18em] text-zinc-500">
@@ -891,7 +905,7 @@ export default function PlayerShell() {
                     <span>-12 dB</span>
                   </div>
 
-                  <div className="flex min-h-[270px] items-end justify-between gap-2">
+                  <div className="flex min-h-[276px] items-end justify-between gap-1 sm:gap-3">
                     {EQ_BANDS.map((band, index) => {
                       const value = eqValues[index];
                       const percentage = ((value + 12) / 24) * 100;
@@ -901,19 +915,26 @@ export default function PlayerShell() {
                           key={band.frequency}
                           className="flex min-w-0 flex-1 flex-col items-center gap-3"
                         >
-                          <div className="relative flex h-[210px] w-full max-w-[40px] items-center justify-center">
-                            <div className="absolute inset-x-0 top-0 h-px bg-white/10" />
-                            <div className="absolute inset-x-0 top-1/4 h-px bg-white/[0.07]" />
-                            <div className="absolute inset-x-0 top-1/2 h-px bg-white/15" />
-                            <div className="absolute inset-x-0 top-3/4 h-px bg-white/[0.07]" />
-                            <div className="absolute inset-x-0 bottom-0 h-px bg-white/10" />
+                          <div className="relative h-[220px] w-full max-w-[42px]">
+                            <div className="pointer-events-none absolute inset-x-1 top-2 h-px bg-white/10" />
+                            <div className="pointer-events-none absolute inset-x-1 top-1/4 h-px bg-white/[0.07]" />
+                            <div className="pointer-events-none absolute inset-x-1 top-1/2 h-px bg-white/15" />
+                            <div className="pointer-events-none absolute inset-x-1 top-3/4 h-px bg-white/[0.07]" />
+                            <div className="pointer-events-none absolute inset-x-1 bottom-2 h-px bg-white/10" />
 
-                            <div className="absolute left-1/2 top-2 h-[194px] w-[5px] -translate-x-1/2 rounded-full bg-[#06080d] ring-1 ring-white/10">
+                            <div className="pointer-events-none absolute left-1/2 top-3 h-[196px] w-[5px] -translate-x-1/2 rounded-full bg-[#06080d] ring-1 ring-white/10">
                               <div
-                                className="absolute bottom-0 left-0 w-full rounded-full bg-[#4e8fe8] transition-all duration-100"
+                                className="absolute bottom-0 left-0 w-full rounded-full bg-[#4e8fe8] transition-[height] duration-75"
                                 style={{ height: `${percentage}%` }}
                               />
                             </div>
+
+                            <div
+                              className="pointer-events-none absolute left-1/2 z-10 h-4 w-4 -translate-x-1/2 rounded-full border border-[#b8d0ef] bg-[#dce9fa] shadow-[0_1px_3px_rgba(0,0,0,0.55)] transition-[bottom] duration-75"
+                              style={{
+                                bottom: `calc(${percentage}% - 8px)`,
+                              }}
+                            />
 
                             <input
                               type="range"
@@ -921,34 +942,27 @@ export default function PlayerShell() {
                               max="12"
                               step="1"
                               value={value}
-                              onChange={(event) => {
-                                const nextValues = [...eqValues];
-                                nextValues[index] = Number(
-                                  event.target.value
-                                );
-                                setEqValues(nextValues);
-                              }}
-                              className="eq-vertical-slider absolute z-30 h-[210px] w-[40px] cursor-ns-resize"
-                              aria-label={`${band.label} equalizer`}
-                            />
-
-                            <div
-                              className="pointer-events-none absolute left-1/2 z-20 h-4 w-4 -translate-x-1/2 rounded-full border border-[#a8caff] bg-[#d9e8ff] shadow-[0_1px_3px_rgba(0,0,0,0.55)] transition-all duration-100"
-                              style={{
-                                bottom: `calc(${percentage}% - 8px)`,
-                              }}
+                              disabled={!eqEnabled}
+                              orient="vertical"
+                              onChange={(event) =>
+                                updateEqBand(index, event.target.value)
+                              }
+                              className="eq-real-slider absolute inset-0 z-20 h-[220px] w-full"
+                              aria-label={`${band.label}: ${formatEqValue(
+                                value
+                              )}`}
                             />
                           </div>
 
                           <div className="text-center">
-                            <p className="text-[10px] font-semibold text-white">
+                            <p className="whitespace-nowrap text-[10px] font-semibold text-white">
                               {band.label
                                 .replace(" Hz", "")
                                 .replace(" kHz", "K")}
                             </p>
-                            <p className="mt-1 text-[9px] text-[#91bdf3]">
-                              {value > 0 ? "+" : ""}
-                              {value} dB
+
+                            <p className="mt-1 whitespace-nowrap text-[9px] text-[#91bdf3]">
+                              {formatEqValue(value)}
                             </p>
                           </div>
                         </div>
