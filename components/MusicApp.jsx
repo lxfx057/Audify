@@ -58,6 +58,36 @@ async function extractVideoThumbnail(file) {
   });
 }
 
+/**
+ * Estrae una copertina JPEG o PNG dai magic bytes del file audio (supporta ID3v2/APIC o scan diretto buffer)
+ */
+async function extractAudioThumbnail(file) {
+  try {
+    const sliceSize = Math.min(file.size, 512 * 1024); // primi 512KB
+    const arrayBuffer = await file.slice(0, sliceSize).arrayBuffer();
+    const bytes = new Uint8Array(arrayBuffer);
+
+    for (let i = 0; i < bytes.length - 10; i++) {
+      // JPEG (FF D8 FF)
+      if (bytes[i] === 0xFF && bytes[i+1] === 0xD8 && bytes[i+2] === 0xFF) {
+        const imageBlob = new Blob([bytes.slice(i)], { type: 'image/jpeg' });
+        return URL.createObjectURL(imageBlob);
+      }
+      // PNG (89 50 4E 47 0D 0A 1A 0A)
+      if (
+        bytes[i] === 0x89 && bytes[i+1] === 0x50 && bytes[i+2] === 0x4E && bytes[i+3] === 0x47 &&
+        bytes[i+4] === 0x0D && bytes[i+5] === 0x0A && bytes[i+6] === 0x1A && bytes[i+7] === 0x0A
+      ) {
+        const imageBlob = new Blob([bytes.slice(i)], { type: 'image/png' });
+        return URL.createObjectURL(imageBlob);
+      }
+    }
+  } catch (e) {
+    console.warn("Cover extract warning:", e);
+  }
+  return null;
+}
+
 function openDB() {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
@@ -298,7 +328,7 @@ export default function MusicApp() {
   const addFiles = async (files) => {
     const valid = Array.from(files || []).filter((file) => {
       const name = file.name.toLowerCase();
-      const okMp3 = file.type.startsWith("audio/") || name.endsWith(".mp3");
+      const okMp3 = file.type.startsWith("audio/") || name.endsWith(".mp3") || name.endsWith(".m4a") || name.endsWith(".flac");
       const okMp4 = file.type.startsWith("video/") || name.endsWith(".mp4") || name.endsWith(".m4v");
       return okMp3 || okMp4;
     });
@@ -307,7 +337,15 @@ export default function MusicApp() {
     for (const file of valid) {
       const id = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
       const kind = isVideoFile(file) ? "video" : "audio";
-      const thumb = kind === "video" ? await extractVideoThumbnail(file) : null;
+      
+      // Estrazione copertina video o audio
+      let thumb = null;
+      if (kind === "video") {
+        thumb = await extractVideoThumbnail(file);
+      } else {
+        thumb = await extractAudioThumbnail(file);
+      }
+
       const item = {
         id,
         title: file.name.replace(/\.[^.]+$/, ""),
@@ -381,7 +419,7 @@ export default function MusicApp() {
                   type="file"
                   multiple
                   className="hidden"
-                  accept="audio/*,video/*,.mp3,.mp4,.m4v"
+                  accept="audio/*,video/*,.mp3,.mp4,.m4v,.m4a,.flac"
                   onChange={importFiles}
                 />
               </label>
@@ -421,7 +459,7 @@ export default function MusicApp() {
                       className="flex min-w-0 flex-1 items-center gap-3 text-left"
                     >
                       <div className="h-12 w-12 overflow-hidden rounded-2xl bg-[#0b1020]">
-                        {s.kind === "video" && s.thumb ? (
+                        {s.thumb ? (
                           <img src={s.thumb} className="h-full w-full object-cover" alt="" />
                         ) : (
                           <div className="flex h-full w-full items-center justify-center text-[#7db6ff]">♫</div>
@@ -467,7 +505,7 @@ export default function MusicApp() {
                     className="flex items-center gap-3 rounded-2xl border border-white/10 bg-[#16161a] px-4 py-3"
                   >
                     <div className="h-12 w-12 overflow-hidden rounded-2xl bg-[#0b1020]">
-                      {s.kind === "video" && s.thumb ? (
+                      {s.thumb ? (
                         <img src={s.thumb} className="h-full w-full object-cover" alt="" />
                       ) : (
                         <div className="flex h-full w-full items-center justify-center text-[#7db6ff]">♫</div>
@@ -563,7 +601,7 @@ export default function MusicApp() {
                         max="12"
                         value={eq[i]}
                         onChange={(e) => {
-                          const next = [...eq];
+                          next = [...eq];
                           next[i] = Number(e.target.value);
                           setEq(next);
                         }}
