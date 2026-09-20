@@ -1,8 +1,24 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Home, Folder, Settings, Search, Upload, Music2, Heart } from "lucide-react";
-import MiniPlayer from "./MiniPlayer";
+import {
+  Home,
+  Folder,
+  Settings,
+  Search,
+  Upload,
+  Music2,
+  Heart,
+  ChevronDown,
+  ChevronUp,
+  Pause,
+  Play,
+  SkipBack,
+  SkipForward,
+  Repeat,
+  Shuffle,
+  Trash2,
+} from "lucide-react";
 
 const DB_NAME = "music-spotlight-db";
 const DB_VERSION = 1;
@@ -127,6 +143,13 @@ function shuffleArray(list) {
   return [...list].sort(() => Math.random() - 0.5);
 }
 
+function formatTime(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60).toString().padStart(2, "0");
+  return `${mins}:${secs}`;
+}
+
 export default function MusicApp() {
   const [songs, setSongs] = useState([]);
   const [deleted, setDeleted] = useState([]);
@@ -141,13 +164,24 @@ export default function MusicApp() {
   const [mode, setMode] = useState("normal");
   const [eqEnabled, setEqEnabled] = useState(true);
   const [eq, setEq] = useState(Array(7).fill(0));
+  const [expanded, setExpanded] = useState(false);
+  const [imgError, setImgError] = useState(false);
 
   const audioRef = useRef(null);
   const videoRef = useRef(null);
   const ctxRef = useRef(null);
   const nodesRef = useRef(null);
 
-  const track = songs[current] || null;
+  const activeQueue = useMemo(
+    () => (mode === "shuffle" ? shuffleArray(songs) : songs),
+    [songs, mode]
+  );
+
+  const track = activeQueue[current] || activeQueue[0] || null;
+
+  useEffect(() => {
+    setImgError(false);
+  }, [track?.id, track?.thumb]);
 
   useEffect(() => {
     (async () => {
@@ -178,7 +212,9 @@ export default function MusicApp() {
   useEffect(() => {
     if (!track) return;
     const media = track.kind === "video" ? videoRef.current : audioRef.current;
-    if (media && track.src) media.src = track.src;
+    if (media && track.src && media.src !== track.src) {
+      media.src = track.src;
+    }
   }, [track]);
 
   const ensureAudioGraph = () => {
@@ -251,8 +287,6 @@ export default function MusicApp() {
     [songs, query]
   );
 
-  const orderedSongs = useMemo(() => (mode === "shuffle" ? shuffleArray(songs) : songs), [songs, mode]);
-
   const seekTo = (value) => {
     const media = mediaForTrack();
     if (!media) return;
@@ -295,13 +329,14 @@ export default function MusicApp() {
     setIsPlaying(false);
   };
 
-  const playTrack = async (song) => {
-    const idx = songs.findIndex((x) => x.id === song.id);
+  const playTrackById = async (songId) => {
+    const idx = activeQueue.findIndex((x) => x.id === songId);
     if (idx < 0) return;
     setCurrent(idx);
     requestAnimationFrame(async () => {
-      if (song.kind === "audio") ensureAudioGraph();
-      const media = song.kind === "video" ? videoRef.current : audioRef.current;
+      const targetSong = activeQueue[idx];
+      if (targetSong?.kind === "audio") ensureAudioGraph();
+      const media = targetSong?.kind === "video" ? videoRef.current : audioRef.current;
       if (media) {
         const ok = await safePlay(media);
         setIsPlaying(ok);
@@ -310,24 +345,33 @@ export default function MusicApp() {
   };
 
   const next = () => {
-    if (!songs.length) return;
-    if (mode === "shuffle") {
-      const others = songs.filter((s) => s.id !== track?.id);
-      if (!others.length) return;
-      const pick = others[Math.floor(Math.random() * others.length)];
-      playTrack(pick);
-      return;
-    }
-    const idx = track ? songs.findIndex((s) => s.id === track.id) : 0;
-    const nextIndex = (idx + 1) % songs.length;
-    playTrack(songs[nextIndex]);
+    if (!activeQueue.length) return;
+    const nextIndex = (current + 1) % activeQueue.length;
+    setCurrent(nextIndex);
+    requestAnimationFrame(async () => {
+      const targetSong = activeQueue[nextIndex];
+      if (targetSong?.kind === "audio") ensureAudioGraph();
+      const media = targetSong?.kind === "video" ? videoRef.current : audioRef.current;
+      if (media) {
+        const ok = await safePlay(media);
+        setIsPlaying(ok);
+      }
+    });
   };
 
   const prev = () => {
-    if (!songs.length) return;
-    const idx = track ? songs.findIndex((s) => s.id === track.id) : 0;
-    const prevIndex = (idx - 1 + songs.length) % songs.length;
-    playTrack(songs[prevIndex]);
+    if (!activeQueue.length) return;
+    const prevIndex = (current - 1 + activeQueue.length) % activeQueue.length;
+    setCurrent(prevIndex);
+    requestAnimationFrame(async () => {
+      const targetSong = activeQueue[prevIndex];
+      if (targetSong?.kind === "audio") ensureAudioGraph();
+      const media = targetSong?.kind === "video" ? videoRef.current : audioRef.current;
+      if (media) {
+        const ok = await safePlay(media);
+        setIsPlaying(ok);
+      }
+    });
   };
 
   const toggleFav = (id) =>
@@ -379,10 +423,10 @@ export default function MusicApp() {
     }
 
     if (created.length) {
-      setSongs((prev) => [...created, ...prev]);
+      setSongs((prevList) => [...created, ...prevList]);
       setCurrent(0);
       setSection("home");
-      requestAnimationFrame(() => playTrack(created[0]));
+      requestAnimationFrame(() => playTrackById(created[0].id));
     }
   };
 
@@ -411,7 +455,53 @@ export default function MusicApp() {
     setSongs((prev) => [updated, ...prev]);
   };
 
+  const cycleMode = () => {
+    const nextMode = mode === "normal" ? "shuffle" : mode === "shuffle" ? "loop" : "normal";
+    setMode(nextMode);
+  };
+
   const restoreable = deleted.filter((x) => x.deletedAt && Date.now() - x.deletedAt <= TEN_DAYS);
+
+  const hasThumb = Boolean(track?.thumb && !imgError);
+
+  const renderArtwork = (isLarge = false) => {
+    if (!track) return null;
+    if (track.kind === "video") {
+      return (
+        <video
+          ref={videoRef}
+          src={track.src}
+          className={isLarge ? "h-full w-full object-contain" : "h-full w-full object-cover"}
+          controls={false}
+          playsInline
+        />
+      );
+    }
+    if (hasThumb) {
+      return (
+        <img
+          key={track.thumb}
+          src={track.thumb}
+          alt={track.title}
+          className="h-full w-full object-cover"
+          onError={() => setImgError(true)}
+        />
+      );
+    }
+    return (
+      <div className="flex h-full w-full flex-col items-center justify-center bg-[#0b1020] text-[#7db6ff]">
+        <span className={isLarge ? "text-6xl" : "text-2xl"}>♫</span>
+        {isLarge && (
+          <p className="mt-3 text-xs uppercase tracking-[0.32em] text-[#7db6ff]/80">
+            Audio
+          </p>
+        )}
+      </div>
+    );
+  };
+
+  const maxDuration = Number.isFinite(duration) && duration > 0 ? duration : 0;
+  const seekValue = Math.min(currentTime || 0, maxDuration);
 
   return (
     <div className="min-h-screen bg-[#09090b] text-white pb-44">
@@ -463,7 +553,7 @@ export default function MusicApp() {
               </div>
 
               <div className="space-y-3 max-h-[52vh] overflow-auto pr-1">
-                {(query ? visible : orderedSongs).map((s) => (
+                {(query ? visible : activeQueue).map((s) => (
                   <div
                     key={s.id}
                     className={`flex items-center gap-3 rounded-2xl border border-white/10 bg-[#16161a] px-4 py-3 transition hover:bg-white/[0.04] ${
@@ -472,7 +562,7 @@ export default function MusicApp() {
                   >
                     <button
                       type="button"
-                      onClick={() => playTrack(s)}
+                      onClick={() => playTrackById(s.id)}
                       className="flex min-w-0 flex-1 items-center gap-3 text-left"
                     >
                       <div className="h-12 w-12 overflow-hidden rounded-2xl bg-[#0b1020]">
@@ -671,31 +761,141 @@ export default function MusicApp() {
       <audio
         ref={audioRef}
         className="hidden"
-        onEnded={() => {
-          setIsPlaying(false);
-          next();
-        }}
       />
       <video ref={videoRef} className="hidden" />
 
-      <MiniPlayer
-        track={track}
-        isPlaying={isPlaying}
-        onPlay={playCurrent}
-        onPause={pauseCurrent}
-        onPrev={prev}
-        onNext={next}
-        onToggleFav={() => track && toggleFav(track.id)}
-        isFav={track ? favorites.includes(track.id) : false}
-        videoRef={videoRef}
-        volume={volume}
-        setVolume={setVolume}
-        duration={duration}
-        currentTime={currentTime}
-        seekTo={seekTo}
-        mode={mode}
-        setMode={setMode}
-      />
+      {track && (
+        <section
+          className={`fixed inset-x-0 bottom-16 z-50 overflow-hidden border-t border-white/10 bg-[#111113]/95 backdrop-blur-xl transition-all duration-300 ${
+            expanded ? "h-[82vh]" : "h-[88px]"
+          }`}
+        >
+          <div className="flex h-[88px] items-center gap-3 px-4">
+            <button
+              type="button"
+              onClick={() => setExpanded((state) => !state)}
+              className="flex min-w-0 flex-1 items-center gap-3 text-left"
+              aria-label="Toggle player size"
+            >
+              <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-[#0b1020] ring-1 ring-white/10">
+                {renderArtwork(false)}
+              </div>
+
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-white">
+                  {track.title}
+                </p>
+                <p className="truncate text-xs text-zinc-400">
+                  {track.artist}
+                </p>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => toggleFav(track.id)}
+              className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-white/5 text-white active:scale-95"
+              aria-label="Toggle favorite"
+            >
+              <Heart
+                size={18}
+                className={favorites.includes(track.id) ? "fill-white text-white" : ""}
+              />
+            </button>
+
+            <button
+              type="button"
+              onClick={isPlaying ? pauseCurrent : playCurrent}
+              className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-white text-black active:scale-95"
+              aria-label={isPlaying ? "Pause" : "Play"}
+            >
+              {isPlaying ? <Pause size={20} /> : <Play size={20} />}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setExpanded((state) => !state)}
+              className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-white/5 text-white active:scale-95"
+              aria-label="Expand player"
+            >
+              {expanded ? <ChevronDown size={19} /> : <ChevronUp size={19} />}
+            </button>
+          </div>
+
+          {expanded && (
+            <div className="flex h-[calc(82vh-88px)] flex-col gap-5 overflow-y-auto px-4 pb-5">
+              <div className="flex min-h-[260px] flex-1 items-center justify-center overflow-hidden rounded-[28px] border border-white/10 bg-[#07111f] relative">
+                {renderArtwork(true)}
+              </div>
+
+              <div>
+                <h2 className="truncate text-2xl font-bold">{track.title}</h2>
+                <p className="truncate text-sm text-zinc-400">{track.artist}</p>
+              </div>
+
+              <div className="grid grid-cols-[46px_1fr_46px] items-center gap-3">
+                <span className="text-xs text-zinc-400">
+                  {formatTime(currentTime)}
+                </span>
+
+                <input
+                  type="range"
+                  min="0"
+                  max={maxDuration}
+                  step="0.1"
+                  value={seekValue}
+                  disabled={!maxDuration}
+                  onChange={(event) => seekTo(Number(event.target.value))}
+                  className="w-full accent-white"
+                  aria-label="Seek track"
+                />
+
+                <span className="text-right text-xs text-zinc-400">
+                  {formatTime(duration)}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-center gap-4">
+                <button
+                  type="button"
+                  onClick={cycleMode}
+                  className="grid h-10 w-10 place-items-center rounded-full bg-white/5 text-zinc-300 active:scale-95"
+                  aria-label="Cycle play mode"
+                >
+                  {mode === "shuffle" ? <Shuffle size={18} /> : <Repeat size={18} />}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={prev}
+                  className="grid h-12 w-12 place-items-center rounded-full bg-white/5 active:scale-95"
+                  aria-label="Previous track"
+                >
+                  <SkipBack size={20} />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={isPlaying ? pauseCurrent : playCurrent}
+                  className="grid h-16 w-16 place-items-center rounded-full bg-white text-black active:scale-95"
+                  aria-label={isPlaying ? "Pause" : "Play"}
+                >
+                  {isPlaying ? <Pause size={24} /> : <Play size={24} />}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={next}
+                  className="grid h-12 w-12 place-items-center rounded-full bg-white/5 active:scale-95"
+                  aria-label="Next track"
+                >
+                  <SkipForward size={20} />
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
+      )}
     </div>
   );
 }
