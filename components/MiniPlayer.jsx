@@ -76,91 +76,105 @@ export default function MiniPlayer({
     }
     return (
       <div className="flex h-full w-full flex-col items-center justify-center bg-[#0b1020] text-[#7db6ff]">
-        <span className={isLarge ? "text-5xl" : "text-xl"}>♫</span>
+        <span className={isLarge ? "text-6xl" : "text-xl"}>♫</span>
       </div>
     );
   };
 
   return (
     <section
-      className={`fixed inset-x-0 bottom-16 z-50 overflow-hidden border-t border-white/15 bg-[#141418]/95 backdrop-blur-xl transition-all duration-300 ${
-        expanded ? "h-[82vh]" : "h-[76px]"
+      className={`fixed z-50 overflow-hidden bg-[#141418] transition-all duration-300 ${
+        expanded
+          ? "inset-0 h-screen w-screen"
+          : "inset-x-0 bottom-16 h-[76px] border-t border-white/15 backdrop-blur-xl"
       }`}
     >
-      {/* Barra fissa inferiore */}
-      <div className="flex h-[76px] items-center gap-3 px-4">
-        <button
-          type="button"
-          onClick={() => setExpanded((state) => !state)}
-          className="flex min-w-0 flex-1 items-center gap-3 text-left"
-        >
-          <div className="h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-[#0b1020]">
-            {renderArtwork(false)}
-          </div>
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-white">
-              {track.title}
-            </p>
-            <p className="truncate text-xs text-zinc-400">
-              {track.artist}
-            </p>
-          </div>
-        </button>
-
-        {onToggleFavorite && (
+      {/* Barra fissa inferiore (visibile solo se non espanso) */}
+      {!expanded && (
+        <div className="flex h-[76px] items-center gap-3 px-4">
           <button
             type="button"
-            onClick={onToggleFavorite}
-            className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white/5 text-white active:scale-95"
-            aria-label="Toggle favorite"
+            onClick={() => setExpanded(true)}
+            className="flex min-w-0 flex-1 items-center gap-3 text-left"
           >
-            <Heart
-              size={16}
-              className={isFavorite ? "fill-white text-white" : ""}
-            />
+            <div className="h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-[#0b1020]">
+              {renderArtwork(false)}
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-white">
+                {track.title}
+              </p>
+              <p className="truncate text-xs text-zinc-400">
+                {track.artist}
+              </p>
+            </div>
           </button>
-        )}
 
-        <button
-          type="button"
-          onClick={isPlaying ? onPause : onPlay}
-          className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-white text-black active:scale-95"
-          aria-label={isPlaying ? "Pause" : "Play"}
-        >
-          {isPlaying ? <Pause size={18} /> : <Play size={18} />}
-        </button>
+          {onToggleFavorite && (
+            <button
+              type="button"
+              onClick={onToggleFavorite}
+              className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white/5 text-white active:scale-95"
+            >
+              <Heart
+                size={16}
+                className={isFavorite ? "fill-white text-white" : ""}
+              />
+            </button>
+          )}
 
-        <button
-          type="button"
-          onClick={() => setExpanded((state) => !state)}
-          className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white/5 text-white active:scale-95"
-          aria-label="Expand player"
-        >
-          {expanded ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
-        </button>
-      </div>
+          <button
+            type="button"
+            onClick={isPlaying ? onPause : onPlay}
+            className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-white text-black active:scale-95"
+          >
+            {isPlaying ? <Pause size={18} /> : <Play size={18} />}
+          </button>
 
-      {/* Vista espansa */}
+          <button
+            type="button"
+            onClick={() => setExpanded(true)}
+            className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white/5 text-white active:scale-95"
+          >
+            <ChevronUp size={18} />
+          </button>
+        </div>
+      )}
+
+      {/* Vista espansa a schermo intero (100% viewport) */}
       {expanded && (
-        <div className="flex h-[calc(82vh-76px)] flex-col gap-5 overflow-y-auto px-5 pb-6 pt-4">
-          <div className="flex flex-1 items-center justify-center overflow-hidden rounded-3xl border border-white/10 bg-[#0a0a0f]">
-            <div className="aspect-square w-full max-w-[280px] overflow-hidden rounded-2xl bg-[#0b1020]">
+        <div className="flex h-full w-full flex-col justify-between overflow-y-auto px-6 py-8">
+          <div className="flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => setExpanded(false)}
+              className="grid h-10 w-10 place-items-center rounded-full bg-white/10 text-white active:scale-95"
+            >
+              <ChevronDown size={20} />
+            </button>
+            <span className="text-xs uppercase tracking-widest text-zinc-400">
+              In riproduzione
+            </span>
+            <div className="w-10" />
+          </div>
+
+          <div className="my-auto flex flex-col items-center gap-6 py-6">
+            <div className="aspect-square w-full max-w-[320px] overflow-hidden rounded-3xl bg-[#0b1020] shadow-2xl">
               {renderArtwork(true)}
+            </div>
+
+            <div className="w-full text-center">
+              <h2 className="truncate text-2xl font-bold text-white">
+                {track.title}
+              </h2>
+              <p className="truncate text-base text-zinc-400">
+                {track.artist}
+              </p>
             </div>
           </div>
 
-          <div>
-            <h2 className="truncate text-xl font-bold">{track.title}</h2>
-            <p className="truncate text-sm text-zinc-400">
-              {track.artist}
-            </p>
-          </div>
-
-          <div className="space-y-1">
-            <div className="flex items-center gap-3">
-              <span className="text-xs text-zinc-400">
-                {formatTime(currentTime)}
-              </span>
+          <div className="space-y-6">
+            <div className="space-y-1">
               <input
                 type="range"
                 min="0"
@@ -171,51 +185,64 @@ export default function MiniPlayer({
                 onChange={(e) => onSeek(Number(e.target.value))}
                 className="w-full accent-white cursor-pointer"
               />
-              <span className="text-right text-xs text-zinc-400">
-                {formatTime(max)}
-              </span>
+              <div className="flex justify-between text-xs text-zinc-400">
+                <span>{formatTime(currentTime)}</span>
+                <span>{formatTime(max)}</span>
+              </div>
             </div>
-          </div>
 
-          <div className="flex items-center justify-center gap-5">
-            {setMode && (
+            <div className="flex items-center justify-center gap-6">
+              {setMode && (
+                <button
+                  type="button"
+                  onClick={cycleMode}
+                  className="grid h-10 w-10 place-items-center rounded-full bg-white/5 text-zinc-300 active:scale-95"
+                >
+                  {mode === "shuffle" ? (
+                    <Shuffle size={18} />
+                  ) : (
+                    <Repeat size={18} />
+                  )}
+                </button>
+              )}
+
               <button
                 type="button"
-                onClick={cycleMode}
-                className="grid h-10 w-10 place-items-center rounded-full bg-white/5 text-zinc-300 active:scale-95"
-                title={`Mode: ${mode}`}
+                onClick={onPrevious}
+                className="grid h-12 w-12 place-items-center rounded-full bg-white/5 text-white active:scale-95"
               >
-                {mode === "shuffle" ? (
-                  <Shuffle size={18} />
-                ) : (
-                  <Repeat size={18} />
-                )}
+                <SkipBack size={20} />
               </button>
-            )}
 
-            <button
-              type="button"
-              onClick={onPrevious}
-              className="grid h-12 w-12 place-items-center rounded-full bg-white/5 text-white active:scale-95"
-            >
-              <SkipBack size={20} />
-            </button>
+              <button
+                type="button"
+                onClick={isPlaying ? onPause : onPlay}
+                className="grid h-16 w-16 place-items-center rounded-full bg-white text-black active:scale-95 shadow-xl"
+              >
+                {isPlaying ? <Pause size={28} /> : <Play size={28} />}
+              </button>
 
-            <button
-              type="button"
-              onClick={isPlaying ? onPause : onPlay}
-              className="grid h-16 w-16 place-items-center rounded-full bg-white text-black active:scale-95 shadow-lg"
-            >
-              {isPlaying ? <Pause size={28} /> : <Play size={28} />}
-            </button>
+              <button
+                type="button"
+                onClick={onNext}
+                className="grid h-12 w-12 place-items-center rounded-full bg-white/5 text-white active:scale-95"
+              >
+                <SkipForward size={20} />
+              </button>
 
-            <button
-              type="button"
-              onClick={onNext}
-              className="grid h-12 w-12 place-items-center rounded-full bg-white/5 text-white active:scale-95"
-            >
-              <SkipForward size={20} />
-            </button>
+              {onToggleFavorite && (
+                <button
+                  type="button"
+                  onClick={onToggleFavorite}
+                  className="grid h-10 w-10 place-items-center rounded-full bg-white/5 text-white active:scale-95"
+                >
+                  <Heart
+                    size={18}
+                    className={isFavorite ? "fill-white text-white" : ""}
+                  />
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}
