@@ -357,6 +357,7 @@ export default function PlayerShell() {
   const activeTrackIdRef = useRef(null);
   const modeRef = useRef("normal");
   const tracksRef = useRef([]);
+  const isDraggingSeekRef = useRef(false);
 
   const activeTrack = useMemo(
     () => tracks.find((track) => track.id === activeTrackId) || null,
@@ -604,7 +605,9 @@ export default function PlayerShell() {
     if (!audio) return;
 
     const updateProgress = () => {
-      setCurrentTime(audio.currentTime || 0);
+      if (!isDraggingSeekRef.current) {
+        setCurrentTime(audio.currentTime || 0);
+      }
       setDuration(Number.isFinite(audio.duration) ? audio.duration : 0);
     };
 
@@ -723,7 +726,18 @@ export default function PlayerShell() {
     };
   }, [activeTrack?.id]);
 
+  // Skip indietro: se sono passati >3 secondi, riavvia la traccia in corso; altrimenti va alla precedente
   const previous = () => {
+    const audio = audioRef.current;
+    if (audio && audio.currentTime > 3) {
+      audio.currentTime = 0;
+      setCurrentTime(0);
+      if (isPlaying) {
+        audio.play().catch(() => {});
+      }
+      return;
+    }
+
     if (!tracks.length || !activeTrackId) return;
 
     const index = tracks.findIndex((track) => track.id === activeTrackId);
@@ -750,12 +764,21 @@ export default function PlayerShell() {
     setActiveTrackId(tracks[(index + 1) % tracks.length].id);
   };
 
+  // Posizionamento temporale reattivo e pulito
   const seek = (time) => {
+    const safeTime = Number.isFinite(time) ? Math.max(0, time) : 0;
+    setCurrentTime(safeTime);
+    isDraggingSeekRef.current = true;
+    
     const audio = audioRef.current;
-    if (!audio || !Number.isFinite(time)) return;
-
-    audio.currentTime = time;
-    setCurrentTime(time);
+    if (audio && Number.isFinite(safeTime)) {
+      audio.currentTime = safeTime;
+    }
+    
+    // Rilascia il flag di drag dopo un breve lasso di tempo per riallineare timeupdate
+    setTimeout(() => {
+      isDraggingSeekRef.current = false;
+    }, 150);
   };
 
   const toggleFavorite = (id) => {
@@ -1550,11 +1573,10 @@ export default function PlayerShell() {
                               step="1"
                               value={value}
                               disabled={!eqEnabled}
-                              orient="vertical"
                               onChange={(event) =>
                                 updateEqBand(index, event.target.value)
                               }
-                              className="eq-real-slider absolute inset-0 z-20 h-[220px] w-full"
+                              className="eq-real-slider absolute inset-0 z-20 h-[220px] w-full opacity-0 cursor-pointer"
                               aria-label={`${band.label}: ${formatEqValue(
                                 value
                               )}`}
@@ -1591,7 +1613,7 @@ export default function PlayerShell() {
 
                   <button
                     type="button"
-                    onClick={() => setEqValues()}
+                    onClick={() => setEqValues(Array(EQ_BANDS.length).fill(6))}
                     className="flex-1 rounded-xl border border-[#719fd6]/30 bg-[#719fd6]/10 px-3 py-3 text-sm font-medium text-[#bdd9fa] transition active:scale-[0.98]"
                   >
                     Bass Boost
