@@ -254,6 +254,47 @@ export default function MusicApp() {
 
   const mediaForTrack = () => (track?.kind === "video" ? videoRef.current : audioRef.current);
 
+  const safePlay = async (media) => {
+    if (!media) return false;
+    try {
+      const p = media.play();
+      if (p && typeof p.then === "function") await p;
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const next = () => {
+    if (!activeQueue.length) return;
+    const nextIndex = (current + 1) % activeQueue.length;
+    setCurrent(nextIndex);
+    requestAnimationFrame(async () => {
+      const targetSong = activeQueue[nextIndex];
+      if (targetSong?.kind === "audio") ensureAudioGraph();
+      const media = targetSong?.kind === "video" ? videoRef.current : audioRef.current;
+      if (media) {
+        const ok = await safePlay(media);
+        setIsPlaying(ok);
+      }
+    });
+  };
+
+  const prev = () => {
+    if (!activeQueue.length) return;
+    const prevIndex = (current - 1 + activeQueue.length) % activeQueue.length;
+    setCurrent(prevIndex);
+    requestAnimationFrame(async () => {
+      const targetSong = activeQueue[prevIndex];
+      if (targetSong?.kind === "audio") ensureAudioGraph();
+      const media = targetSong?.kind === "video" ? videoRef.current : audioRef.current;
+      if (media) {
+        const ok = await safePlay(media);
+        setIsPlaying(ok);
+      }
+    });
+  };
+
   useEffect(() => {
     const media = mediaForTrack();
     if (!media) return;
@@ -280,7 +321,7 @@ export default function MusicApp() {
       media.removeEventListener("durationchange", update);
       media.removeEventListener("ended", ended);
     };
-  }, [track, mode]);
+  }, [track, mode, current, activeQueue]);
 
   const visible = useMemo(
     () => songs.filter((s) => `${s.title} ${s.artist}`.toLowerCase().includes(query.toLowerCase())),
@@ -292,17 +333,6 @@ export default function MusicApp() {
     if (!media) return;
     media.currentTime = value;
     setCurrentTime(value);
-  };
-
-  const safePlay = async (media) => {
-    if (!media) return false;
-    try {
-      const p = media.play();
-      if (p && typeof p.then === "function") await p;
-      return true;
-    } catch {
-      return false;
-    }
   };
 
   const playCurrent = async () => {
@@ -335,36 +365,6 @@ export default function MusicApp() {
     setCurrent(idx);
     requestAnimationFrame(async () => {
       const targetSong = activeQueue[idx];
-      if (targetSong?.kind === "audio") ensureAudioGraph();
-      const media = targetSong?.kind === "video" ? videoRef.current : audioRef.current;
-      if (media) {
-        const ok = await safePlay(media);
-        setIsPlaying(ok);
-      }
-    });
-  };
-
-  const next = () => {
-    if (!activeQueue.length) return;
-    const nextIndex = (current + 1) % activeQueue.length;
-    setCurrent(nextIndex);
-    requestAnimationFrame(async () => {
-      const targetSong = activeQueue[nextIndex];
-      if (targetSong?.kind === "audio") ensureAudioGraph();
-      const media = targetSong?.kind === "video" ? videoRef.current : audioRef.current;
-      if (media) {
-        const ok = await safePlay(media);
-        setIsPlaying(ok);
-      }
-    });
-  };
-
-  const prev = () => {
-    if (!activeQueue.length) return;
-    const prevIndex = (current - 1 + activeQueue.length) % activeQueue.length;
-    setCurrent(prevIndex);
-    requestAnimationFrame(async () => {
-      const targetSong = activeQueue[prevIndex];
       if (targetSong?.kind === "audio") ensureAudioGraph();
       const media = targetSong?.kind === "video" ? videoRef.current : audioRef.current;
       if (media) {
@@ -758,10 +758,7 @@ export default function MusicApp() {
         </div>
       </nav>
 
-      <audio
-        ref={audioRef}
-        className="hidden"
-      />
+      <audio ref={audioRef} className="hidden" />
       <video ref={videoRef} className="hidden" />
 
       {track && (
