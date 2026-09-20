@@ -68,9 +68,10 @@ export default function MiniPlayer({
                 src={track.thumb}
                 alt=""
                 className="h-full w-full object-cover"
+                onError={(e) => { e.currentTarget.style.display = 'none'; }}
               />
             ) : (
-              "♫"
+              <span className="flex h-full w-full items-center justify-center">♫</span>
             )}
           </div>
 
@@ -196,7 +197,7 @@ export default function MiniPlayer({
               className="grid h-16 w-16 place-items-center rounded-full bg-white text-black active:scale-95"
               aria-label={isPlaying ? "Pause" : "Play"}
             >
-              {isPlaying ? <Pause size={24} /> : <Play size={24} />}
+              {isPlaying ? <Pause size5={24} /> : <Play size={24} />}
             </button>
 
             <button
