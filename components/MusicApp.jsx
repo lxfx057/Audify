@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Home, Folder, Settings, Trash2, Search, Upload, Music2, Heart } from "lucide-react";
+import { Home, Folder, Settings, Search, Upload, Music2, Heart } from "lucide-react";
 import MiniPlayer from "./MiniPlayer";
 
 const DB_NAME = "music-spotlight-db";
@@ -155,12 +155,14 @@ export default function MusicApp() {
         const stored = await dbGetAll();
         const mapTrack = (x) => ({
           ...x,
-          src: getCachedObjectURL(x.fileBlob || x.src),
-          thumb: getCachedObjectURL(x.thumbBlob || x.thumb)
+          src: x.fileBlob ? getCachedObjectURL(x.fileBlob) : x.src,
+          thumb: x.thumbBlob ? getCachedObjectURL(x.thumbBlob) : x.thumb,
         });
         setSongs(stored.filter((x) => !x.deleted).map(mapTrack));
         setDeleted(stored.filter((x) => x.deleted).map(mapTrack));
-      } catch {}
+      } catch (e) {
+        console.error("DB Load error:", e);
+      }
     })();
   }, []);
 
@@ -176,7 +178,7 @@ export default function MusicApp() {
   useEffect(() => {
     if (!track) return;
     const media = track.kind === "video" ? videoRef.current : audioRef.current;
-    if (media) media.src = track.src;
+    if (media && track.src) media.src = track.src;
   }, [track]);
 
   const ensureAudioGraph = () => {
