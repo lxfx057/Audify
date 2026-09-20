@@ -48,15 +48,14 @@ export default function MiniPlayer({
     setMode(nextMode);
   };
 
-  const renderThumbnail = (className) => {
+  const renderArtwork = (isLarge = false) => {
     if (track.kind === "video") {
       return (
         <video
           ref={videoRef}
           src={track.src}
-          className={className}
+          className={isLarge ? "h-full w-full object-contain" : "h-full w-full object-cover"}
           controls={false}
-          muted
           playsInline
         />
       );
@@ -66,14 +65,21 @@ export default function MiniPlayer({
         <img
           src={track.thumb}
           alt={track.title}
-          className={className}
-          onError={(e) => { e.currentTarget.style.display = 'none'; }}
+          className={isLarge ? "h-full w-full object-cover" : "h-full w-full object-cover"}
+          onError={(e) => {
+            e.currentTarget.style.display = "none";
+          }}
         />
       );
     }
     return (
       <div className="flex h-full w-full flex-col items-center justify-center text-[#7db6ff]">
-        <span className="text-4xl">♫</span>
+        <span className={isLarge ? "text-5xl" : "text-2xl"}>♫</span>
+        {isLarge && (
+          <p className="mt-4 text-xs uppercase tracking-[0.32em] text-[#7db6ff]">
+            Audio
+          </p>
+        )}
       </div>
     );
   };
@@ -92,8 +98,8 @@ export default function MiniPlayer({
           className="flex min-w-0 flex-1 items-center gap-3 text-left"
           aria-label="Toggle player size"
         >
-          <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-[#0b1020] text-2xl text-[#7db6ff] ring-1 ring-white/10">
-            {renderThumbnail("h-full w-full object-cover")}
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-[#0b1020] text-[#7db6ff] ring-1 ring-white/10">
+            {renderArtwork(false)}
           </div>
 
           <div className="min-w-0">
@@ -141,30 +147,7 @@ export default function MiniPlayer({
       {expanded && (
         <div className="flex h-[calc(82vh-88px)] flex-col gap-5 overflow-y-auto px-4 pb-5">
           <div className="flex min-h-[260px] flex-1 items-center justify-center overflow-hidden rounded-[28px] border border-white/10 bg-[#07111f] relative">
-            {track.kind === "video" ? (
-              <video
-                ref={videoRef}
-                src={track.src}
-                className="h-full w-full object-contain"
-                controls={false}
-              />
-            ) : track.thumb ? (
-              <img
-                src={track.thumb}
-                alt={track.title}
-                className="h-full w-full object-cover"
-                onError={(e) => { e.currentTarget.style.display = 'none'; }}
-              />
-            ) : (
-              <div className="text-center">
-                <div className="mx-auto flex h-28 w-28 items-center justify-center rounded-[28px] border border-[#244062] bg-[#0b1020] text-5xl text-[#7db6ff]">
-                  ♫
-                </div>
-                <p className="mt-4 text-xs uppercase tracking-[0.32em] text-[#7db6ff]">
-                  Audio
-                </p>
-              </div>
-            )}
+            {renderArtwork(true)}
           </div>
 
           <div>
@@ -215,7 +198,6 @@ export default function MiniPlayer({
 
             <button
               type="button"
-              onClickisPlaying={isPlaying}
               onClick={isPlaying ? onPause : onPlay}
               className="grid h-16 w-16 place-items-center rounded-full bg-white text-black active:scale-95"
               aria-label={isPlaying ? "Pause" : "Play"}
