@@ -11,7 +11,6 @@ import {
   SkipForward,
   Repeat,
   Shuffle,
-  Volume2,
 } from "lucide-react";
 
 function formatTime(seconds) {
@@ -34,8 +33,6 @@ export default function MiniPlayer({
   seekTo,
   onToggleFav,
   videoRef,
-  volume,
-  setVolume,
   mode,
   setMode,
 }) {
@@ -210,19 +207,6 @@ export default function MiniPlayer({
             >
               <SkipForward size={20} />
             </button>
-
-            <div className="flex items-center gap-2 pl-2">
-              <Volume2 size={16} className="text-zinc-400" />
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.05"
-                value={volume}
-                onChange={(e) => setVolume(Number(e.target.value))}
-                className="w-20 accent-white"
-              />
-            </div>
           </div>
         </div>
       )}
