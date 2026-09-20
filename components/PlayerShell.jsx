@@ -107,6 +107,14 @@ function getKind(file) {
   return "audio";
 }
 
+function blobToDataURL(blob) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result);
+    reader.readAsDataURL(blob);
+  });
+}
+
 async function extractCoverBlob(file) {
   try {
     const arrayBuffer = await file.slice(0, 128 * 1024).arrayBuffer();
@@ -140,16 +148,13 @@ async function extractCoverBlob(file) {
 function createTrackFromRecord(record) {
   return {
     ...record,
-    url: URL.createObjectURL(record.file),
+    url: record.file ? URL.createObjectURL(record.file) : "",
   };
 }
 
 function releaseTrackUrl(track) {
   if (track?.url?.startsWith("blob:")) {
     URL.revokeObjectURL(track.url);
-  }
-  if (track?.thumbnail?.startsWith("blob:")) {
-    URL.revokeObjectURL(track.thumbnail);
   }
 }
 
@@ -203,8 +208,8 @@ function makeCollectionCover(type, name) {
       <defs>
         <linearGradient id="cover" x1="0" y1="0" x2="1" y2="1">
           <stop offset="0%" stop-color="${palette[0]}"/>
-          <stop offset="55%" stop-color="${palette}"/>
-          <stop offset="100%" stop-color="${palette}"/>
+          <stop offset="55%" stop-color="${palette[1] || palette[0]}"/>
+          <stop offset="100%" stop-color="${palette[2] || palette[0]}"/>
         </linearGradient>
       </defs>
       <rect width="600" height="600" rx="90" fill="url(#cover)"/>
@@ -726,7 +731,6 @@ export default function PlayerShell() {
     };
   }, [activeTrack?.id]);
 
-  // Skip indietro: se sono passati >3 secondi, riavvia la traccia in corso; altrimenti va alla precedente
   const previous = () => {
     const audio = audioRef.current;
     if (audio && audio.currentTime > 3) {
@@ -764,7 +768,6 @@ export default function PlayerShell() {
     setActiveTrackId(tracks[(index + 1) % tracks.length].id);
   };
 
-  // Posizionamento temporale reattivo e pulito
   const seek = (time) => {
     const safeTime = Number.isFinite(time) ? Math.max(0, time) : 0;
     setCurrentTime(safeTime);
@@ -775,7 +778,6 @@ export default function PlayerShell() {
       audio.currentTime = safeTime;
     }
     
-    // Rilascia il flag di drag dopo un breve lasso di tempo per riallineare timeupdate
     setTimeout(() => {
       isDraggingSeekRef.current = false;
     }, 150);
@@ -839,7 +841,7 @@ export default function PlayerShell() {
       if (kind === "audio") {
         const coverBlob = await extractCoverBlob(file);
         if (coverBlob) {
-          thumbnail = URL.createObjectURL(coverBlob);
+          thumbnail = await blobToDataURL(coverBlob);
         }
       }
 
