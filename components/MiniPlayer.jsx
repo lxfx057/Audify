@@ -48,6 +48,36 @@ export default function MiniPlayer({
     setMode(nextMode);
   };
 
+  const renderThumbnail = (className) => {
+    if (track.kind === "video") {
+      return (
+        <video
+          ref={videoRef}
+          src={track.src}
+          className={className}
+          controls={false}
+          muted
+          playsInline
+        />
+      );
+    }
+    if (track.thumb) {
+      return (
+        <img
+          src={track.thumb}
+          alt={track.title}
+          className={className}
+          onError={(e) => { e.currentTarget.style.display = 'none'; }}
+        />
+      );
+    }
+    return (
+      <div className="flex h-full w-full flex-col items-center justify-center text-[#7db6ff]">
+        <span className="text-4xl">♫</span>
+      </div>
+    );
+  };
+
   return (
     <section
       className={`fixed inset-x-0 bottom-16 z-50 overflow-hidden border-t border-white/10 bg-[#111113]/95 backdrop-blur-xl transition-all duration-300 ${
@@ -63,16 +93,7 @@ export default function MiniPlayer({
           aria-label="Toggle player size"
         >
           <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-[#0b1020] text-2xl text-[#7db6ff] ring-1 ring-white/10">
-            {track.thumb ? (
-              <img
-                src={track.thumb}
-                alt=""
-                className="h-full w-full object-cover"
-                onError={(e) => { e.currentTarget.style.display = 'none'; }}
-              />
-            ) : (
-              <span className="flex h-full w-full items-center justify-center">♫</span>
-            )}
+            {renderThumbnail("h-full w-full object-cover")}
           </div>
 
           <div className="min-w-0">
@@ -116,7 +137,7 @@ export default function MiniPlayer({
         </button>
       </div>
 
-      {/* Vista Espansa */}
+      {/* Vista Espansa con Copertina Gigante */}
       {expanded && (
         <div className="flex h-[calc(82vh-88px)] flex-col gap-5 overflow-y-auto px-4 pb-5">
           <div className="flex min-h-[260px] flex-1 items-center justify-center overflow-hidden rounded-[28px] border border-white/10 bg-[#07111f] relative">
@@ -132,6 +153,7 @@ export default function MiniPlayer({
                 src={track.thumb}
                 alt={track.title}
                 className="h-full w-full object-cover"
+                onError={(e) => { e.currentTarget.style.display = 'none'; }}
               />
             ) : (
               <div className="text-center">
@@ -193,11 +215,12 @@ export default function MiniPlayer({
 
             <button
               type="button"
+              onClickisPlaying={isPlaying}
               onClick={isPlaying ? onPause : onPlay}
               className="grid h-16 w-16 place-items-center rounded-full bg-white text-black active:scale-95"
               aria-label={isPlaying ? "Pause" : "Play"}
             >
-              {isPlaying ? <Pause size5={24} /> : <Play size={24} />}
+              {isPlaying ? <Pause size={24} /> : <Play size={24} />}
             </button>
 
             <button
