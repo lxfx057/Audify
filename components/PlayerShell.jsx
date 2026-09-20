@@ -107,6 +107,36 @@ function getKind(file) {
   return "audio";
 }
 
+async function extractCoverBlob(file) {
+  try {
+    const arrayBuffer = await file.slice(0, 128 * 1024).arrayBuffer();
+    const bytes = new Uint8Array(arrayBuffer);
+    let startIndex = -1;
+    let format = 'image/jpeg';
+
+    for (let i = 0; i < bytes.length - 3; i++) {
+      if (bytes[i] === 0xFF && bytes[i+1] === 0xD8 && bytes[i+2] === 0xFF) {
+        startIndex = i;
+        format = 'image/jpeg';
+        break;
+      }
+      if (bytes[i] === 0x89 && bytes[i+1] === 0x50 && bytes[i+2] === 0x4E && bytes[i+3] === 0x47) {
+        startIndex = i;
+        format = 'image/png';
+        break;
+      }
+    }
+
+    if (startIndex !== -1) {
+      const imageBytes = bytes.slice(startIndex);
+      return new Blob([imageBytes], { type: format });
+    }
+  } catch (e) {
+    console.warn('Cover extract fallback:', e);
+  }
+  return null;
+}
+
 function createTrackFromRecord(record) {
   return {
     ...record,
@@ -117,6 +147,9 @@ function createTrackFromRecord(record) {
 function releaseTrackUrl(track) {
   if (track?.url?.startsWith("blob:")) {
     URL.revokeObjectURL(track.url);
+  }
+  if (track?.thumbnail?.startsWith("blob:")) {
+    URL.revokeObjectURL(track.thumbnail);
   }
 }
 
@@ -170,8 +203,8 @@ function makeCollectionCover(type, name) {
       <defs>
         <linearGradient id="cover" x1="0" y1="0" x2="1" y2="1">
           <stop offset="0%" stop-color="${palette[0]}"/>
-          <stop offset="55%" stop-color="${palette[1]}"/>
-          <stop offset="100%" stop-color="${palette[2]}"/>
+          <stop offset="55%" stop-color="${palette}"/>
+          <stop offset="100%" stop-color="${palette}"/>
         </linearGradient>
       </defs>
       <rect width="600" height="600" rx="90" fill="url(#cover)"/>
@@ -778,8 +811,14 @@ export default function PlayerShell() {
 
     for (const file of queuedFiles) {
       const kind = getKind(file);
-      const thumbnail =
-        kind === "video" ? await createVideoThumbnail(file) : null;
+      let thumbnail = kind === "video" ? await createVideoThumbnail(file) : null;
+
+      if (kind === "audio") {
+        const coverBlob = await extractCoverBlob(file);
+        if (coverBlob) {
+          thumbnail = URL.createObjectURL(coverBlob);
+        }
+      }
 
       const record = {
         id: crypto.randomUUID(),
@@ -1552,7 +1591,7 @@ export default function PlayerShell() {
 
                   <button
                     type="button"
-                    onClick={() => setEqValues([7, 4, 2, 0, -1, 2, 5])}
+                    onClick={() => setEqValues()}
                     className="flex-1 rounded-xl border border-[#719fd6]/30 bg-[#719fd6]/10 px-3 py-3 text-sm font-medium text-[#bdd9fa] transition active:scale-[0.98]"
                   >
                     Bass Boost
