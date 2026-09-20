@@ -19,6 +19,16 @@ const EQ_BANDS = [
   { label: "6K", freq: 6000 },
 ];
 
+const urlCache = new Map();
+function getCachedObjectURL(blobOrUrl) {
+  if (!blobOrUrl) return null;
+  if (typeof blobOrUrl === "string") return blobOrUrl;
+  if (urlCache.has(blobOrUrl)) return urlCache.get(blobOrUrl);
+  const url = URL.createObjectURL(blobOrUrl);
+  urlCache.set(blobOrUrl, url);
+  return url;
+}
+
 function isVideoFile(file) {
   const name = file.name.toLowerCase();
   return file.type.startsWith("video/") || name.endsWith(".mp4") || name.endsWith(".m4v");
@@ -58,28 +68,21 @@ async function extractVideoThumbnail(file) {
   });
 }
 
-/**
- * Estrae una copertina JPEG o PNG dai magic bytes del file audio (supporta ID3v2/APIC o scan diretto buffer)
- */
 async function extractAudioThumbnail(file) {
   try {
-    const sliceSize = Math.min(file.size, 512 * 1024); // primi 512KB
+    const sliceSize = Math.min(file.size, 512 * 1024);
     const arrayBuffer = await file.slice(0, sliceSize).arrayBuffer();
     const bytes = new Uint8Array(arrayBuffer);
 
     for (let i = 0; i < bytes.length - 10; i++) {
-      // JPEG (FF D8 FF)
       if (bytes[i] === 0xFF && bytes[i+1] === 0xD8 && bytes[i+2] === 0xFF) {
-        const imageBlob = new Blob([bytes.slice(i)], { type: 'image/jpeg' });
-        return URL.createObjectURL(imageBlob);
+        return new Blob([bytes.slice(i)], { type: 'image/jpeg' });
       }
-      // PNG (89 50 4E 47 0D 0A 1A 0A)
       if (
         bytes[i] === 0x89 && bytes[i+1] === 0x50 && bytes[i+2] === 0x4E && bytes[i+3] === 0x47 &&
         bytes[i+4] === 0x0D && bytes[i+5] === 0x0A && bytes[i+6] === 0x1A && bytes[i+7] === 0x0A
       ) {
-        const imageBlob = new Blob([bytes.slice(i)], { type: 'image/png' });
-        return URL.createObjectURL(imageBlob);
+        return new Blob([bytes.slice(i)], { type: 'image/png' });
       }
     }
   } catch (e) {
@@ -150,10 +153,13 @@ export default function MusicApp() {
     (async () => {
       try {
         const stored = await dbGetAll();
-        const active = stored.filter((x) => !x.deleted);
-        const trash = stored.filter((x) => x.deleted);
-        setSongs(active);
-        setDeleted(trash);
+        const mapTrack = (x) => ({
+          ...x,
+          src: getCachedObjectURL(x.fileBlob || x.src),
+          thumb: getCachedObjectURL(x.thumbBlob || x.thumb)
+        });
+        setSongs(stored.filter((x) => !x.deleted).map(mapTrack));
+        setDeleted(stored.filter((x) => x.deleted).map(mapTrack));
       } catch {}
     })();
   }, []);
@@ -338,12 +344,15 @@ export default function MusicApp() {
       const id = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
       const kind = isVideoFile(file) ? "video" : "audio";
       
-      // Estrazione copertina video o audio
-      let thumb = null;
+      let thumbBlob = null;
       if (kind === "video") {
-        thumb = await extractVideoThumbnail(file);
+        const dataUrl = await extractVideoThumbnail(file);
+        if (dataUrl) {
+          const res = await fetch(dataUrl);
+          thumbBlob = await res.blob();
+        }
       } else {
-        thumb = await extractAudioThumbnail(file);
+        thumbBlob = await extractAudioThumbnail(file);
       }
 
       const item = {
@@ -351,14 +360,20 @@ export default function MusicApp() {
         title: file.name.replace(/\.[^.]+$/, ""),
         artist: kind === "video" ? "Video" : "Local file",
         kind,
-        src: URL.createObjectURL(file),
-        thumb,
+        fileBlob: file,
+        thumbBlob: thumbBlob,
         deleted: false,
         createdAt: Date.now(),
         deletedAt: null,
       };
       await dbPut(item);
-      created.push(item);
+
+      const memoryItem = {
+        ...item,
+        src: getCachedObjectURL(file),
+        thumb: getCachedObjectURL(thumbBlob),
+      };
+      created.push(memoryItem);
     }
 
     if (created.length) {
@@ -601,9 +616,9 @@ export default function MusicApp() {
                         max="12"
                         value={eq[i]}
                         onChange={(e) => {
-                          next = [...eq];
-                          next[i] = Number(e.target.value);
-                          setEq(next);
+                          const nextEq = [...eq];
+                          nextEq[i] = Number(e.target.value);
+                          setEq(nextEq);
                         }}
                         className="w-full"
                       />
@@ -659,6 +674,7 @@ export default function MusicApp() {
           next();
         }}
       />
+      <video ref={videoRef} className="hidden" />
 
       <MiniPlayer
         track={track}
