@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   ChevronDown,
   ChevronUp,
@@ -37,6 +37,11 @@ export default function MiniPlayer({
   setMode,
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [imgError, setImgError] = useState(false);
+
+  useEffect(() => {
+    setImgError(false);
+  }, [track?.id, track?.thumb]);
 
   if (!track) return null;
 
@@ -47,6 +52,8 @@ export default function MiniPlayer({
     const nextMode = mode === "normal" ? "shuffle" : mode === "shuffle" ? "loop" : "normal";
     setMode(nextMode);
   };
+
+  const hasThumb = Boolean(track.thumb && !imgError);
 
   const renderArtwork = (isLarge = false) => {
     if (track.kind === "video") {
@@ -60,23 +67,22 @@ export default function MiniPlayer({
         />
       );
     }
-    if (track.thumb) {
+    if (hasThumb) {
       return (
         <img
+          key={track.thumb}
           src={track.thumb}
           alt={track.title}
-          className={isLarge ? "h-full w-full object-cover" : "h-full w-full object-cover"}
-          onError={(e) => {
-            e.currentTarget.style.display = "none";
-          }}
+          className="h-full w-full object-cover"
+          onError={() => setImgError(true)}
         />
       );
     }
     return (
-      <div className="flex h-full w-full flex-col items-center justify-center text-[#7db6ff]">
-        <span className={isLarge ? "text-5xl" : "text-2xl"}>♫</span>
+      <div className="flex h-full w-full flex-col items-center justify-center bg-[#0b1020] text-[#7db6ff]">
+        <span className={isLarge ? "text-6xl" : "text-2xl"}>♫</span>
         {isLarge && (
-          <p className="mt-4 text-xs uppercase tracking-[0.32em] text-[#7db6ff]">
+          <p className="mt-3 text-xs uppercase tracking-[0.32em] text-[#7db6ff]/80">
             Audio
           </p>
         )}
@@ -98,7 +104,7 @@ export default function MiniPlayer({
           className="flex min-w-0 flex-1 items-center gap-3 text-left"
           aria-label="Toggle player size"
         >
-          <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-[#0b1020] text-[#7db6ff] ring-1 ring-white/10">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-[#0b1020] ring-1 ring-white/10">
             {renderArtwork(false)}
           </div>
 
