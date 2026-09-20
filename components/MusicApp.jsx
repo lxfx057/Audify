@@ -160,6 +160,7 @@ export default function MusicApp() {
   const [volume, setVolume] = useState(0.9);
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
+  const [isSeeking, setIsSeeking] = useState(false);
   const [favorites, setFavorites] = useState([]);
   const [mode, setMode] = useState("normal");
   const [eqEnabled, setEqEnabled] = useState(true);
@@ -282,14 +283,21 @@ export default function MusicApp() {
 
   const prev = () => {
     if (!activeQueue.length) return;
+    const media = mediaForTrack();
+    // Se siamo oltre i 3 secondi dall'inizio, riavvia la traccia corrente
+    if (media && media.currentTime > 3) {
+      media.currentTime = 0;
+      setCurrentTime(0);
+      return;
+    }
     const prevIndex = (current - 1 + activeQueue.length) % activeQueue.length;
     setCurrent(prevIndex);
     requestAnimationFrame(async () => {
       const targetSong = activeQueue[prevIndex];
       if (targetSong?.kind === "audio") ensureAudioGraph();
-      const media = targetSong?.kind === "video" ? videoRef.current : audioRef.current;
-      if (media) {
-        const ok = await safePlay(media);
+      const targetMedia = targetSong?.kind === "video" ? videoRef.current : audioRef.current;
+      if (targetMedia) {
+        const ok = await safePlay(targetMedia);
         setIsPlaying(ok);
       }
     });
@@ -299,8 +307,10 @@ export default function MusicApp() {
     const media = mediaForTrack();
     if (!media) return;
     const update = () => {
-      setCurrentTime(media.currentTime || 0);
-      setDuration(media.duration || 0);
+      if (!isSeeking) {
+        setCurrentTime(media.currentTime || 0);
+        setDuration(media.duration || 0);
+      }
     };
     const ended = () => {
       setIsPlaying(false);
@@ -321,18 +331,24 @@ export default function MusicApp() {
       media.removeEventListener("durationchange", update);
       media.removeEventListener("ended", ended);
     };
-  }, [track, mode, current, activeQueue]);
+  }, [track, mode, current, activeQueue, isSeeking]);
 
   const visible = useMemo(
     () => songs.filter((s) => `${s.title} ${s.artist}`.toLowerCase().includes(query.toLowerCase())),
     [songs, query]
   );
 
-  const seekTo = (value) => {
+  const handleSeekChange = (val) => {
+    setCurrentTime(val);
+  };
+
+  const handleSeekCommit = (val) => {
+    setIsSeeking(false);
     const media = mediaForTrack();
-    if (!media) return;
-    media.currentTime = value;
-    setCurrentTime(value);
+    if (media) {
+      media.currentTime = val;
+    }
+    setCurrentTime(val);
   };
 
   const playCurrent = async () => {
@@ -461,7 +477,6 @@ export default function MusicApp() {
   };
 
   const restoreable = deleted.filter((x) => x.deletedAt && Date.now() - x.deletedAt <= TEN_DAYS);
-
   const hasThumb = Boolean(track?.thumb && !imgError);
 
   const renderArtwork = (isLarge = false) => {
@@ -832,7 +847,7 @@ export default function MusicApp() {
 
               <div className="grid grid-cols-[46px_1fr_46px] items-center gap-3">
                 <span className="text-xs text-zinc-400">
-                  {formatTime(currentTime)}
+                  {formatTime(seekValue)}
                 </span>
 
                 <input
@@ -842,13 +857,17 @@ export default function MusicApp() {
                   step="0.1"
                   value={seekValue}
                   disabled={!maxDuration}
-                  onChange={(event) => seekTo(Number(event.target.value))}
-                  className="w-full accent-white"
+                  onMouseDown={() => setIsSeeking(true)}
+                  onTouchStart={() => setIsSeeking(true)}
+                  onChange={(event) => handleSeekChange(Number(event.target.value))}
+                  onMouseUp={(event) => handleSeekCommit(Number(event.target.value))}
+                  onTouchEnd={(event) => handleSeekCommit(Number(event.target.value))}
+                  className="w-full accent-white cursor-pointer"
                   aria-label="Seek track"
                 />
 
                 <span className="text-right text-xs text-zinc-400">
-                  {formatTime(duration)}
+                  {formatTime(maxDuration)}
                 </span>
               </div>
 
