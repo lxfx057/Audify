@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   ChevronDown,
   ChevronUp,
@@ -9,42 +9,47 @@ import {
   Play,
   SkipBack,
   SkipForward,
+  Repeat,
+  Shuffle,
+  Volume2,
 } from "lucide-react";
 
 function formatTime(seconds) {
   if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
-
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60).toString().padStart(2, "0");
-
   return `${mins}:${secs}`;
 }
 
 export default function MiniPlayer({
   track,
   isPlaying,
-  isFavorite,
+  isFav,
   duration,
   currentTime,
   onPlay,
   onPause,
-  onPrevious,
+  onPrev,
   onNext,
-  onSeek,
-  onToggleFavorite,
+  seekTo,
+  onToggleFav,
+  videoRef,
+  volume,
+  setVolume,
   mode,
   setMode,
 }) {
   const [expanded, setExpanded] = useState(false);
 
-  useEffect(() => {
-    setExpanded(false);
-  }, [track?.id]);
-
   if (!track) return null;
 
   const max = Number.isFinite(duration) && duration > 0 ? duration : 0;
   const value = Math.min(currentTime || 0, max);
+
+  const cycleMode = () => {
+    const nextMode = mode === "normal" ? "shuffle" : mode === "shuffle" ? "loop" : "normal";
+    setMode(nextMode);
+  };
 
   return (
     <section
@@ -52,17 +57,18 @@ export default function MiniPlayer({
         expanded ? "h-[82vh]" : "h-[88px]"
       }`}
     >
+      {/* Barra fissa inferiore (Mini bar) */}
       <div className="flex h-[88px] items-center gap-3 px-4">
         <button
           type="button"
           onClick={() => setExpanded((state) => !state)}
           className="flex min-w-0 flex-1 items-center gap-3 text-left"
-          aria-label="Open player"
+          aria-label="Toggle player size"
         >
           <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-[#0b1020] text-2xl text-[#7db6ff] ring-1 ring-white/10">
-            {track.thumbnail ? (
+            {track.thumb ? (
               <img
-                src={track.thumbnail}
+                src={track.thumb}
                 alt=""
                 className="h-full w-full object-cover"
               />
@@ -83,13 +89,13 @@ export default function MiniPlayer({
 
         <button
           type="button"
-          onClick={onToggleFavorite}
+          onClick={onToggleFav}
           className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-white/5 text-white active:scale-95"
           aria-label="Toggle favorite"
         >
           <Heart
             size={18}
-            className={isFavorite ? "fill-white text-white" : ""}
+            className={isFav ? "fill-white text-white" : ""}
           />
         </button>
 
@@ -112,12 +118,20 @@ export default function MiniPlayer({
         </button>
       </div>
 
+      {/* Vista Espansa */}
       {expanded && (
         <div className="flex h-[calc(82vh-88px)] flex-col gap-5 overflow-y-auto px-4 pb-5">
-          <div className="flex min-h-[260px] flex-1 items-center justify-center overflow-hidden rounded-[28px] border border-white/10 bg-[#07111f]">
-            {track.thumbnail ? (
+          <div className="flex min-h-[260px] flex-1 items-center justify-center overflow-hidden rounded-[28px] border border-white/10 bg-[#07111f] relative">
+            {track.kind === "video" ? (
+              <video
+                ref={videoRef}
+                src={track.src}
+                className="h-full w-full object-contain"
+                controls={false}
+              />
+            ) : track.thumb ? (
               <img
-                src={track.thumbnail}
+                src={track.thumb}
                 alt={track.title}
                 className="h-full w-full object-cover"
               />
@@ -150,8 +164,8 @@ export default function MiniPlayer({
               step="0.1"
               value={value}
               disabled={!max}
-              onChange={(event) => onSeek(Number(event.target.value))}
-              className="w-full"
+              onChange={(event) => seekTo(Number(event.target.value))}
+              className="w-full accent-white"
               aria-label="Seek track"
             />
 
@@ -163,7 +177,16 @@ export default function MiniPlayer({
           <div className="flex items-center justify-center gap-4">
             <button
               type="button"
-              onClick={onPrevious}
+              onClick={cycleMode}
+              className="grid h-10 w-10 place-items-center rounded-full bg-white/5 text-zinc-300 active:scale-95"
+              aria-label="Cycle play mode"
+            >
+              {mode === "shuffle" ? <Shuffle size={18} /> : <Repeat size={18} />}
+            </button>
+
+            <button
+              type="button"
+              onClick={onPrev}
               className="grid h-12 w-12 place-items-center rounded-full bg-white/5 active:scale-95"
               aria-label="Previous track"
             >
@@ -187,30 +210,18 @@ export default function MiniPlayer({
             >
               <SkipForward size={20} />
             </button>
-          </div>
 
-          <div className="rounded-2xl border border-white/10 bg-[#16161a] p-4">
-            <p className="mb-3 text-sm font-medium">Playback mode</p>
-
-            <div className="flex flex-wrap gap-2">
-              {[
-                ["normal", "Normal"],
-                ["shuffle", "Shuffle"],
-                ["loop", "Loop"],
-              ].map(([value, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => setMode(value)}
-                  className={`rounded-full px-4 py-2 text-sm active:scale-95 ${
-                    mode === value
-                      ? "bg-white text-black"
-                      : "bg-white/5 text-zinc-300"
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
+            <div className="flex items-center gap-2 pl-2">
+              <Volume2 size={16} className="text-zinc-400" />
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value={volume}
+                onChange={(e) => setVolume(Number(e.target.value))}
+                className="w-20 accent-white"
+              />
             </div>
           </div>
         </div>
