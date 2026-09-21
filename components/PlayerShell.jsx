@@ -1,6 +1,5 @@
 "use client";
 
-import { safeId } from '@/lib/safeId';
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Album,
@@ -371,7 +370,9 @@ export default function PlayerShell() {
 
   const audioRef = useRef(null);
   const audioContextRef = useRef(null);
+  const mediaElementSourceRef = useRef(null);
   const audioFiltersRef = useRef([]);
+  const isCustomRoutingActiveRef = useRef(false);
   const activeTrackIdRef = useRef(null);
   const modeRef = useRef("normal");
   const tracksRef = useRef([]);
@@ -560,6 +561,46 @@ export default function PlayerShell() {
     };
   }, []);
 
+  const connectCustomChain = () => {
+    const context = audioContextRef.current;
+    const source = mediaElementSourceRef.current;
+    const filters = audioFiltersRef.current;
+    if (!context || !source) return;
+
+    try {
+      source.disconnect();
+      if (eqEnabled && filters.length > 0) {
+        let prevNode = source;
+        filters.forEach((filter) => {
+          prevNode.connect(filter);
+          prevNode = filter;
+        });
+        prevNode.connect(context.destination);
+      } else {
+        source.connect(context.destination);
+      }
+      isCustomRoutingActiveRef.current = true;
+    } catch {
+      try {
+        source.disconnect();
+        source.connect(context.destination);
+      } catch {}
+      isCustomRoutingActiveRef.current = false;
+    }
+  };
+
+  const disconnectCustomChainForBackground = () => {
+    const context = audioContextRef.current;
+    const source = mediaElementSourceRef.current;
+    if (!context || !source) return;
+
+    try {
+      source.disconnect();
+      source.connect(context.destination);
+      isCustomRoutingActiveRef.current = false;
+    } catch {}
+  };
+
   const ensureAudioGraph = async () => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -589,16 +630,13 @@ export default function PlayerShell() {
         return filter;
       });
 
-      source.connect(filters[0]);
-
-      for (let index = 0; index < filters.length - 1; index += 1) {
-        filters[index].connect(filters[index + 1]);
-      }
-
-      filters[filters.length - 1].connect(context.destination);
-
       audioContextRef.current = context;
+      mediaElementSourceRef.current = source;
       audioFiltersRef.current = filters;
+    }
+
+    if (!document.hidden) {
+      connectCustomChain();
     }
 
     if (audioContextRef.current.state === "suspended") {
@@ -610,6 +648,9 @@ export default function PlayerShell() {
     audioFiltersRef.current.forEach((filter, index) => {
       filter.gain.value = eqEnabled ? eqValues[index] : 0;
     });
+    if (isCustomRoutingActiveRef.current && !document.hidden) {
+      connectCustomChain();
+    }
   }, [eqEnabled, eqValues]);
 
   function updateEqBand(index, value) {
@@ -685,14 +726,35 @@ export default function PlayerShell() {
 
   useEffect(() => {
     const handleVisibilityChange = async () => {
-      if (document.visibilityState === 'visible' && audioContextRef.current) {
+      if (!audioContextRef.current) return;
+      if (document.hidden) {
+        disconnectCustomChainForBackground();
+      } else {
         if (audioContextRef.current.state === 'suspended') {
           await audioContextRef.current.resume().catch(() => {});
         }
+        connectCustomChain();
       }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [eqEnabled, eqValues]);
+
+  // Sblocca AudioContext al primo input utente per compatibilità mobile
+  useEffect(() => {
+    const unlockAudio = () => {
+      if (audioContextRef.current && audioContextRef.current.state === "suspended") {
+        audioContextRef.current.resume().catch(() => {});
+      }
+    };
+    ['click', 'touchstart', 'keydown'].forEach(evt => {
+      window.addEventListener(evt, unlockAudio, { once: false });
+    });
+    return () => {
+      ['click', 'touchstart', 'keydown'].forEach(evt => {
+        window.removeEventListener(evt, unlockAudio);
+      });
+    };
   }, []);
 
   useEffect(() => {
@@ -719,6 +781,12 @@ export default function PlayerShell() {
     navigator.mediaSession.setActionHandler("pause", () => actionsRef.current.pause());
     navigator.mediaSession.setActionHandler("previoustrack", () => actionsRef.current.previous());
     navigator.mediaSession.setActionHandler("nexttrack", () => actionsRef.current.next());
+    navigator.mediaSession.setActionHandler("seekbackward", () => {
+      if (audioRef.current) audioRef.current.currentTime = Math.max(0, audioRef.current.currentTime - 10);
+    });
+    navigator.mediaSession.setActionHandler("seekforward", () => {
+      if (audioRef.current) audioRef.current.currentTime = Math.min(audioRef.current.duration || 0, audioRef.current.currentTime + 10);
+    });
   }, [activeTrack]);
 
   useEffect(() => {
