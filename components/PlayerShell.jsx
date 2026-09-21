@@ -24,6 +24,7 @@ const DATABASE_VERSION = 3;
 const TRACK_STORE = "tracks";
 const COLLECTION_STORE = "collections";
 const FAVORITES_KEY = "audify-favorites";
+const ACTIVE_TRACK_KEY = "audify-last-track-id";
 const TEN_DAYS_MS = 10 * 24 * 60 * 60 * 1000;
 
 const EQ_BANDS = [
@@ -145,7 +146,6 @@ async function extractCoverBlob(file) {
   return null;
 }
 
-// Reidrata il file nativo salvato in IndexedDB in URL blob persistente per la sessione
 function createTrackFromRecord(record) {
   const blobSource = record.fileBlob || record.file;
   return {
@@ -181,7 +181,6 @@ function normalizeText(value) {
     .toLowerCase();
 }
 
-// Ordinamento natural-alphanumeric (numerico + alfabetico intelligente)
 function naturalSortCompare(a, b) {
   return (a.title || "").localeCompare(b.title || "", undefined, {
     numeric: true,
@@ -350,7 +349,12 @@ export default function PlayerShell() {
   const [deletedTracks, setDeletedTracks] = useState([]);
   const [collections, setCollections] = useState([]);
   const [deletedCollections, setDeletedCollections] = useState([]);
-  const [activeTrackId, setActiveTrackId] = useState(null);
+  const [activeTrackId, setActiveTrackId] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem(ACTIVE_TRACK_KEY) || null;
+    }
+    return null;
+  });
   const [section, setSection] = useState("home");
   const [libraryView, setLibraryView] = useState("tracks");
   const [selectedCollectionId, setSelectedCollectionId] = useState(null);
@@ -373,10 +377,18 @@ export default function PlayerShell() {
   const mediaElementSourceRef = useRef(null);
   const audioFiltersRef = useRef([]);
   const isCustomRoutingActiveRef = useRef(false);
-  const activeTrackIdRef = useRef(null);
+  const activeTrackIdRef = useRef(activeTrackId);
   const modeRef = useRef("normal");
   const tracksRef = useRef([]);
   const isDraggingSeekRef = useRef(false);
+
+  // Sincronizza activeTrackId con localStorage
+  useEffect(() => {
+    activeTrackIdRef.current = activeTrackId;
+    if (activeTrackId) {
+      localStorage.setItem(ACTIVE_TRACK_KEY, activeTrackId);
+    }
+  }, [activeTrackId]);
 
   const activeTrack = useMemo(
     () => tracks.find((track) => track.id === activeTrackId) || null,
@@ -435,10 +447,6 @@ export default function PlayerShell() {
     const ids = new Set(selectedCollection.trackIds || []);
     return tracks.filter((track) => ids.has(track.id));
   }, [tracks, selectedCollection]);
-
-  useEffect(() => {
-    activeTrackIdRef.current = activeTrackId;
-  }, [activeTrackId]);
 
   useEffect(() => {
     modeRef.current = mode;
@@ -521,8 +529,10 @@ export default function PlayerShell() {
         const sortedAvailable = availableTracks.sort(naturalSortCompare);
         setTracks(sortedAvailable);
 
-        if (sortedAvailable.length > 0 && !activeTrackIdRef.current) {
-          setActiveTrackId(sortedAvailable[0].id);
+        const savedId = localStorage.getItem(ACTIVE_TRACK_KEY);
+        if (sortedAvailable.length > 0) {
+          const match = sortedAvailable.find((t) => t.id === savedId);
+          setActiveTrackId(match ? match.id : sortedAvailable[0].id);
         }
 
         setDeletedTracks(
@@ -704,6 +714,7 @@ export default function PlayerShell() {
 
   const pause = () => {
     audioRef.current?.pause();
+    setIsPlaying(false);
   };
 
   const play = async () => {
@@ -726,21 +737,23 @@ export default function PlayerShell() {
 
   useEffect(() => {
     const handleVisibilityChange = async () => {
-      if (!audioContextRef.current) return;
       if (document.hidden) {
         disconnectCustomChainForBackground();
       } else {
-        if (audioContextRef.current.state === 'suspended') {
+        if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
           await audioContextRef.current.resume().catch(() => {});
         }
         connectCustomChain();
+        // Se l'audio si è fermato per cause esterne ma la UI dicevaisPlaying, tenta un resync
+        if (audioRef.current && audioRef.current.paused && isPlaying) {
+          audioRef.current.play().catch(() => {});
+        }
       }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [eqEnabled, eqValues]);
+  }, [eqEnabled, eqValues, isPlaying]);
 
-  // Sblocca AudioContext al primo input utente per compatibilità mobile
   useEffect(() => {
     const unlockAudio = () => {
       if (audioContextRef.current && audioContextRef.current.state === "suspended") {
@@ -800,9 +813,7 @@ export default function PlayerShell() {
         playbackRate: audio.playbackRate || 1,
         position: Number.isFinite(currentTime) ? currentTime : 0,
       });
-    } catch {
-      // Ignora disallineamenti di posizionamento non fatali
-    }
+    } catch {}
   }, [duration, currentTime]);
 
   useEffect(() => {
@@ -876,12 +887,10 @@ export default function PlayerShell() {
     const audio = audioRef.current;
     if (!audio || !activeTrack) return;
 
-    audio.pause();
-    audio.src = activeTrack.url;
-    audio.load();
-
-    setCurrentTime(0);
-    setDuration(0);
+    if (audio.src !== activeTrack.url) {
+      audio.src = activeTrack.url;
+      audio.load();
+    }
   }, [activeTrack?.id]);
 
   const selectTrack = (track) => {
@@ -889,6 +898,7 @@ export default function PlayerShell() {
 
     if (track.id !== activeTrackId) {
       setActiveTrackId(track.id);
+      setTimeout(() => play(), 50);
       return;
     }
 
@@ -898,24 +908,6 @@ export default function PlayerShell() {
       play();
     }
   };
-
-  useEffect(() => {
-    if (!activeTrack) return;
-
-    const audio = audioRef.current;
-    if (!audio) return;
-
-    const onCanPlay = async () => {
-      audio.removeEventListener("canplay", onCanPlay);
-      await play();
-    };
-
-    audio.addEventListener("canplay", onCanPlay, { once: true });
-
-    return () => {
-      audio.removeEventListener("canplay", onCanPlay);
-    };
-  }, [activeTrack?.id]);
 
   const seek = (time) => {
     const safeTime = Number.isFinite(time) ? Math.max(0, time) : 0;
@@ -1002,7 +994,7 @@ export default function PlayerShell() {
         folder: folderName,
         kind,
         file: file,
-        fileBlob: file, // <-- Persistito nativamente per sopravvivere alla chiusura app
+        fileBlob: file,
         thumbnail,
         createdAt: Date.now(),
         deletedAt: null,
@@ -1092,7 +1084,6 @@ export default function PlayerShell() {
 
     setTracks((existing) => existing.filter((item) => item.id !== track.id));
     setDeletedTracks((existing) => [deletedTrack, ...existing]);
-
     setFavorites((existing) => existing.filter((id) => id !== track.id));
 
     setCollections((existing) =>
@@ -1273,10 +1264,6 @@ export default function PlayerShell() {
     (track) => Date.now() - track.deletedAt <= TEN_DAYS_MS
   );
 
-  const recoverableDeletedCollections = deletedCollections.filter(
-    (collection) => Date.now() - collection.deletedAt <= TEN_DAYS_MS
-  );
-
   const openCollection = (collection) => {
     setSelectedCollectionId(collection.id);
     setSection("home");
@@ -1305,7 +1292,7 @@ export default function PlayerShell() {
 
   return (
     <main className="min-h-screen bg-[#09090b] pb-44 text-white">
-      <audio ref={audioRef} preload="metadata" playsInline crossOrigin="anonymous" />
+      <audio ref={audioRef} preload="auto" playsInline crossOrigin="anonymous" />
 
       <div className="mx-auto max-w-5xl px-4 pt-4">
         <div className="rounded-[28px] border border-white/10 bg-[#111113] p-4 shadow-[0_18px_60px_rgba(0,0,0,0.38)]">
@@ -1926,129 +1913,6 @@ export default function PlayerShell() {
         mode={mode}
         setMode={setMode}
       />
-
-      {collectionModal && (
-        <div
-          className="fixed inset-0 z-[80] flex items-end bg-black/70 p-4 backdrop-blur-sm sm:items-center sm:justify-center"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="collection-modal-title"
-        >
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              createCollection();
-            }}
-            className="w-full max-w-md rounded-[28px] border border-white/10 bg-[#17171b] p-5 shadow-2xl"
-          >
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <p
-                  id="collection-modal-title"
-                  className="text-lg font-semibold"
-                >
-                  Crea {collectionModal}
-                </p>
-                <p className="mt-1 text-sm text-zinc-400">
-                  La collezione resta salvata su questo dispositivo.
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setCollectionModal(null)}
-                className="grid h-10 w-10 place-items-center rounded-full bg-white/5"
-                aria-label="Chiudi"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <input
-              autoFocus
-              value={collectionName}
-              onChange={(event) => setCollectionName(event.target.value)}
-              placeholder={
-                collectionModal === "album"
-                  ? "Nome album"
-                  : "Nome playlist"
-              }
-              className="mt-5 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none placeholder:text-zinc-600"
-            />
-
-            <div className="mt-4 flex gap-2">
-              <button
-                type="button"
-                onClick={() => setCollectionModal(null)}
-                className="flex-1 rounded-xl bg-white/5 px-4 py-3 text-sm font-medium text-zinc-300"
-              >
-                Annulla
-              </button>
-
-              <button
-                type="submit"
-                disabled={!collectionName.trim()}
-                className="flex-1 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-black disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                Crea
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {duplicateNames.length > 0 && (
-        <div
-          className="fixed inset-0 z-[90] flex items-end bg-black/70 p-4 backdrop-blur-sm sm:items-center sm:justify-center"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="duplicates-modal-title"
-        >
-          <div className="w-full max-w-md rounded-[28px] border border-white/10 bg-[#17171b] p-5 shadow-2xl">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p
-                  id="duplicates-modal-title"
-                  className="text-lg font-semibold"
-                >
-                  Tracce duplicate ignorate
-                </p>
-                <p className="mt-1 text-sm text-zinc-400">
-                  Questi file sono già presenti nella libreria.
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setDuplicateNames([])}
-                className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white/5"
-                aria-label="Chiudi"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="mt-4 max-h-52 space-y-2 overflow-y-auto">
-              {duplicateNames.map((name, index) => (
-                <div
-                  key={`${name}-${index}`}
-                  className="truncate rounded-xl border border-white/10 bg-black/20 px-3 py-3 text-sm text-zinc-200"
-                >
-                  {name}
-                </div>
-              ))}
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setDuplicateNames([])}
-              className="mt-5 w-full rounded-xl bg-white px-4 py-3 text-sm font-semibold text-black active:scale-[0.99]"
-            >
-              Capito
-            </button>
-          </div>
-        </div>
-      )}
 
       <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-[#0c0c0f]/95 backdrop-blur-xl">
         <div className="mx-auto grid max-w-5xl grid-cols-4 gap-1 px-3 py-3">
