@@ -178,6 +178,14 @@ function normalizeText(value) {
     .toLowerCase();
 }
 
+// Ordinamento natural-alphanumeric (numerico + alfabetico intelligente)
+function naturalSortCompare(a, b) {
+  return (a.title || "").localeCompare(b.title || "", undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+}
+
 function isSameFile(file, track) {
   if (!track?.file) return false;
 
@@ -209,7 +217,7 @@ function makeCollectionCover(type, name) {
         <linearGradient id="cover" x1="0" y1="0" x2="1" y2="1">
           <stop offset="0%" stop-color="${palette[0]}"/>
           <stop offset="55%" stop-color="${palette || palette[0]}"/>
-          <stop offset="100%" stop-color="${palette || palette[0]}"/>
+          <stop offset="100%" stop-color="${palette[0]}"/>
         </linearGradient>
       </defs>
       <rect width="600" height="600" rx="90" fill="url(#cover)"/>
@@ -412,7 +420,7 @@ export default function PlayerShell() {
 
     return Array.from(artistMap.entries())
       .map(([name, total]) => ({ name, total }))
-      .sort((first, second) => first.name.localeCompare(second.name));
+      .sort((first, second) => naturalSortCompare({ title: first.name }, { title: second.name }));
   }, [tracks]);
 
   const collectionTracks = useMemo(() => {
@@ -505,7 +513,7 @@ export default function PlayerShell() {
         }
 
         setTracks(
-          availableTracks.sort((first, second) => second.createdAt - first.createdAt)
+          availableTracks.sort(naturalSortCompare)
         );
 
         setDeletedTracks(
@@ -665,7 +673,6 @@ export default function PlayerShell() {
     actionsRef.current = { play, pause, previous, next };
   }, [activeTrack, isPlaying, mode, tracks]);
 
-  // Gestione visibilità pagina (ripristino contesto audio su mobile/lockscreen)
   useEffect(() => {
     const handleVisibilityChange = async () => {
       if (document.visibilityState === 'visible' && audioContextRef.current) {
@@ -678,7 +685,6 @@ export default function PlayerShell() {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, []);
 
-  // MediaSession API binding - metadati e azioni
   useEffect(() => {
     if (!('mediaSession' in navigator)) return;
 
@@ -705,7 +711,6 @@ export default function PlayerShell() {
     navigator.mediaSession.setActionHandler("nexttrack", () => actionsRef.current.next());
   }, [activeTrack]);
 
-  // MediaSession API binding - stato posizione
   useEffect(() => {
     if (!('mediaSession' in navigator) || !navigator.mediaSession.setPositionState) return;
     const audio = audioRef.current;
@@ -854,11 +859,8 @@ export default function PlayerShell() {
     );
   };
 
-  const importFiles = async (event) => {
-    const files = Array.from(event.target.files || []);
-    event.target.value = "";
-
-    const acceptedFiles = files.filter((file) => {
+  const processAndImportFiles = async (filesList) => {
+    const acceptedFiles = filesList.filter((file) => {
       const lower = file.name.toLowerCase();
 
       return (
@@ -908,10 +910,16 @@ export default function PlayerShell() {
         }
       }
 
+      // Estrai eventuale percorso di cartella per mostrare il sub-path o folder reference
+      const relPath = file.webkitRelativePath || "";
+      const pathParts = relPath.split("/");
+      const folderName = pathParts.length > 1 ? pathParts[0] : "";
+
       const record = {
         id: crypto.randomUUID(),
         title: file.name.replace(/\.[^.]+$/, ""),
-        artist: kind === "video" ? "Video locale" : "Audio locale",
+        artist: folderName ? `${folderName}` : kind === "video" ? "Video locale" : "Audio locale",
+        folder: folderName,
         kind,
         file,
         thumbnail,
@@ -925,8 +933,48 @@ export default function PlayerShell() {
       importedTracks.push(track);
     }
 
+    return { importedTracks, folderGroup: importedTracks.length > 0 && importedTracks[0].folder ? importedTracks[0].folder : null };
+  };
+
+  const importFiles = async (event) => {
+    const files = Array.from(event.target.files || []);
+    event.target.value = "";
+    const { importedTracks } = await processAndImportFiles(files);
+
     if (importedTracks.length) {
-      setTracks((existing) => [...importedTracks, ...existing]);
+      setTracks((existing) => [...importedTracks, ...existing].sort(naturalSortCompare));
+    }
+  };
+
+  // Importa intera cartella e crea automaticamente una playlist o album basata sulla cartella
+  const importFolder = async (event) => {
+    const files = Array.from(event.target.files || []);
+    event.target.value = "";
+    const { importedTracks } = await processAndImportFiles(files);
+
+    if (importedTracks.length) {
+      // Ordina numericamente/alfabeticamente le tracce importate dalla cartella
+      const sortedImported = [...importedTracks].sort(naturalSortCompare);
+
+      setTracks((existing) => [...sortedImported, ...existing].sort(naturalSortCompare));
+
+      // Se c'è un nome di cartella principale, crea una playlist con lo stesso nome
+      const rootFolder = sortedImported[0]?.folder;
+      if (rootFolder) {
+        const collection = {
+          id: crypto.randomUUID(),
+          name: rootFolder,
+          type: "playlist",
+          cover: makeCollectionCover("playlist", rootFolder),
+          trackIds: sortedImported.map((t) => t.id),
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          deletedAt: null,
+        };
+
+        await saveRecord(COLLECTION_STORE, collection);
+        setCollections((existing) => [collection, ...existing]);
+      }
     }
   };
 
@@ -1004,7 +1052,7 @@ export default function PlayerShell() {
       existing.filter((item) => item.id !== track.id)
     );
 
-    setTracks((existing) => [restoredTrack, ...existing]);
+    setTracks((existing) => [restoredTrack, ...existing].sort(naturalSortCompare));
   };
 
   const permanentlyDeleteTrack = async (track) => {
@@ -1165,7 +1213,7 @@ export default function PlayerShell() {
 
   return (
     <main className="min-h-screen bg-[#09090b] pb-44 text-white">
-      <audio ref={audioRef} preload="metadata" playsInline crossorigin="anonymous" />
+      <audio ref={audioRef} preload="metadata" playsInline crossOrigin="anonymous" />
 
       <div className="mx-auto max-w-5xl px-4 pt-4">
         <div className="rounded-[28px] border border-white/10 bg-[#111113] p-4 shadow-[0_18px_60px_rgba(0,0,0,0.38)]">
@@ -1190,17 +1238,33 @@ export default function PlayerShell() {
                 </div>
               </div>
 
-              <label className="flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-4 transition active:scale-[0.99]">
-                <Upload size={17} />
-                Importa audio o video
-                <input
-                  type="file"
-                  multiple
-                  accept="audio/*,video/*,.mp3,.mp4,.m4v"
-                  className="hidden"
-                  onChange={importFiles}
-                />
-              </label>
+              {/* Pulsanti di importazione file e cartella */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <label className="flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-4 transition active:scale-[0.99]">
+                  <Upload size={17} />
+                  Importa file
+                  <input
+                    type="file"
+                    multiple
+                    accept="audio/*,video/*,.mp3,.mp4,.m4v"
+                    className="hidden"
+                    onChange={importFiles}
+                  />
+                </label>
+
+                <label className="flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-4 transition active:scale-[0.99]">
+                  <Folder size={17} />
+                  Importa cartella (con struttura)
+                  <input
+                    type="file"
+                    webkitdirectory=""
+                    directory=""
+                    multiple
+                    className="hidden"
+                    onChange={importFolder}
+                  />
+                </label>
+              </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="rounded-2xl border border-white/10 bg-[#16161a] p-4">
@@ -1260,7 +1324,7 @@ export default function PlayerShell() {
               {libraryView === "tracks" && (
                 <div className="space-y-3">
                   {filteredTracks.length === 0 ? (
-                    <EmptyState>Importa un MP3 o MP4 per iniziare.</EmptyState>
+                    <EmptyState>Importa un MP3, MP4 o un'intera cartella per iniziare.</EmptyState>
                   ) : (
                     filteredTracks.map((track) => (
                       <TrackRow
