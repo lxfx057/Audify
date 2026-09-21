@@ -1,3 +1,5 @@
+import { safeId } from '@/lib/safeId'; // adatta il path se necessario
+
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
