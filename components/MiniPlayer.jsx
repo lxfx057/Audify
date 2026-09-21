@@ -1,9 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import {
   ChevronDown,
-  ChevronUp,
   Heart,
   Pause,
   Play,
@@ -37,6 +36,10 @@ export default function MiniPlayer({
 }) {
   const [expanded, setExpanded] = useState(false);
   const [imgError, setImgError] = useState(false);
+  const [dragDeltaY, setDragDeltaY] = useState(0);
+
+  const dragStartYRef = useRef(null);
+  const isDraggingRef = useRef(false);
 
   if (!track) return null;
 
@@ -54,6 +57,32 @@ export default function MiniPlayer({
   };
 
   const hasThumb = Boolean(track.thumbnail && !imgError);
+
+  const handleTouchStart = (e) => {
+    if (!expanded) return;
+    dragStartYRef.current = e.touches[0].clientY;
+    isDraggingRef.current = true;
+  };
+
+  const handleTouchMove = (e) => {
+    if (!isDraggingRef.current || dragStartYRef.current === null) return;
+    const currentY = e.touches[0].clientY;
+    const delta = currentY - dragStartYRef.current;
+    if (delta > 0) {
+      setDragDeltaY(delta);
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (!isDraggingRef.current) return;
+    isDraggingRef.current = false;
+    dragStartYRef.current = null;
+
+    if (dragDeltaY > 110) {
+      setExpanded(false);
+    }
+    setDragDeltaY(0);
+  };
 
   const renderArtwork = (isLarge = false) => {
     if (track.kind === "video") {
@@ -83,11 +112,21 @@ export default function MiniPlayer({
 
   return (
     <section
-      className={`fixed z-50 overflow-hidden bg-[#141418] transition-all duration-300 ${
+      className={`fixed z-50 overflow-hidden bg-[#141418] transition-all ${
         expanded
           ? "inset-0 h-screen w-screen"
-          : "inset-x-0 bottom-16 h-[76px] border-t border-white/15 backdrop-blur-xl"
+          : "inset-x-0 bottom-16 h-[76px] border-t border-white/15 backdrop-blur-xl duration-300"
       }`}
+      style={
+        expanded
+          ? {
+              transform: `translateY(${Math.max(0, dragDeltaY)}px)`,
+              transition: isDraggingRef.current
+                ? "none"
+                : "transform 0.35s cubic-bezier(0.32, 0.72, 0, 1)",
+            }
+          : {}
+      }
     >
       {/* Barra fissa inferiore (visibile solo se non espanso) */}
       {!expanded && (
@@ -141,9 +180,17 @@ export default function MiniPlayer({
         </div>
       )}
 
-      {/* Vista espansa a schermo intero (100% viewport) */}
+      {/* Vista espansa a schermo intero (100% viewport) con touch drag */}
       {expanded && (
-        <div className="flex h-full w-full flex-col justify-between overflow-y-auto px-6 py-8">
+        <div
+          className="flex h-full w-full flex-col justify-between overflow-y-auto px-6 pb-8 pt-4 select-none touch-pan-y"
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+        >
+          {/* iOS Grabber pill */}
+          <div className="w-10 h-1.5 rounded-full bg-white/25 mx-auto mb-3 shrink-0" />
+
           <div className="flex items-center justify-between">
             <button
               type="button"
@@ -158,7 +205,7 @@ export default function MiniPlayer({
             <div className="w-10" />
           </div>
 
-          <div className="my-auto flex flex-col items-center gap-6 py-6">
+          <div className="my-auto flex flex-col items-center gap-6 py-4">
             <div className="aspect-square w-full max-w-[320px] overflow-hidden rounded-3xl bg-[#0b1020] shadow-2xl">
               {renderArtwork(true)}
             </div>
