@@ -605,7 +605,6 @@ export default function PlayerShell() {
     });
   }
 
-  // Ref per azioni play/pause/prev/next dichiarate dopo
   const actionsRef = useRef({ play: () => {}, pause: () => {}, previous: () => {}, next: () => {} });
 
   const previous = () => {
@@ -666,7 +665,20 @@ export default function PlayerShell() {
     actionsRef.current = { play, pause, previous, next };
   }, [activeTrack, isPlaying, mode, tracks]);
 
-  // MediaSession API binding globale
+  // Gestione visibilità pagina (ripristino contesto audio su mobile/lockscreen)
+  useEffect(() => {
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState === 'visible' && audioContextRef.current) {
+        if (audioContextRef.current.state === 'suspended') {
+          await audioContextRef.current.resume().catch(() => {});
+        }
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
+
+  // MediaSession API binding - metadati e azioni
   useEffect(() => {
     if (!('mediaSession' in navigator)) return;
 
@@ -691,19 +703,24 @@ export default function PlayerShell() {
     navigator.mediaSession.setActionHandler("pause", () => actionsRef.current.pause());
     navigator.mediaSession.setActionHandler("previoustrack", () => actionsRef.current.previous());
     navigator.mediaSession.setActionHandler("nexttrack", () => actionsRef.current.next());
+  }, [activeTrack]);
 
-    if ("setPositionState' in navigator.mediaSession && audioRef.current) {
-      try {
-        navigator.mediaSession.setPositionState({
-          duration: Number.isFinite(duration) ? duration : 0,
-          playbackRate: audioRef.current.playbackRate || 1,
-          position: Number.isFinite(currentTime) ? currentTime : 0,
-        });
-      } catch (e) {
-        // Ignora eventuali disallineamenti di posizionamento non fatali
-      }
+  // MediaSession API binding - stato posizione
+  useEffect(() => {
+    if (!('mediaSession' in navigator) || !navigator.mediaSession.setPositionState) return;
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    try {
+      navigator.mediaSession.setPositionState({
+        duration: Number.isFinite(duration) ? duration : 0,
+        playbackRate: audio.playbackRate || 1,
+        position: Number.isFinite(currentTime) ? currentTime : 0,
+      });
+    } catch {
+      // Ignora disallineamenti di posizionamento non fatali
     }
-  }, [activeTrack, duration, currentTime]);
+  }, [duration, currentTime]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -1148,7 +1165,7 @@ export default function PlayerShell() {
 
   return (
     <main className="min-h-screen bg-[#09090b] pb-44 text-white">
-      <audio ref={audioRef} preload="metadata" playsInline />
+      <audio ref={audioRef} preload="metadata" playsInline crossorigin="anonymous" />
 
       <div className="mx-auto max-w-5xl px-4 pt-4">
         <div className="rounded-[28px] border border-white/10 bg-[#111113] p-4 shadow-[0_18px_60px_rgba(0,0,0,0.38)]">
