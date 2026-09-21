@@ -117,7 +117,7 @@ function blobToDataURL(blob) {
 
 async function extractCoverBlob(file) {
   try {
-    const arrayBuffer = await file.slice(0, 128 * 1024).arrayBuffer();
+    const arrayBuffer = await file.slice(0, 256 * 1024).arrayBuffer();
     const bytes = new Uint8Array(arrayBuffer);
     let startIndex = -1;
     let format = 'image/jpeg';
@@ -208,8 +208,8 @@ function makeCollectionCover(type, name) {
       <defs>
         <linearGradient id="cover" x1="0" y1="0" x2="1" y2="1">
           <stop offset="0%" stop-color="${palette[0]}"/>
-          <stop offset="55%" stop-color="${palette[1] || palette[0]}"/>
-          <stop offset="100%" stop-color="${palette[2] || palette[0]}"/>
+          <stop offset="55%" stop-color="${palette || palette[0]}"/>
+          <stop offset="100%" stop-color="${palette || palette[0]}"/>
         </linearGradient>
       </defs>
       <rect width="600" height="600" rx="90" fill="url(#cover)"/>
@@ -605,6 +605,106 @@ export default function PlayerShell() {
     });
   }
 
+  // Ref per azioni play/pause/prev/next dichiarate dopo
+  const actionsRef = useRef({ play: () => {}, pause: () => {}, previous: () => {}, next: () => {} });
+
+  const previous = () => {
+    const audio = audioRef.current;
+    if (audio && audio.currentTime > 3) {
+      audio.currentTime = 0;
+      setCurrentTime(0);
+      if (isPlaying) {
+        audio.play().catch(() => {});
+      }
+      return;
+    }
+
+    if (!tracks.length || !activeTrackId) return;
+
+    const index = tracks.findIndex((track) => track.id === activeTrackId);
+    const previousTrack = tracks[(index - 1 + tracks.length) % tracks.length];
+
+    setActiveTrackId(previousTrack.id);
+  };
+
+  const next = () => {
+    if (!tracks.length || !activeTrackId) return;
+
+    if (mode === "shuffle") {
+      const otherTracks = tracks.filter((track) => track.id !== activeTrackId);
+
+      const nextTrack =
+        otherTracks[Math.floor(Math.random() * otherTracks.length)] ||
+        tracks[0];
+
+      setActiveTrackId(nextTrack.id);
+      return;
+    }
+
+    const index = tracks.findIndex((track) => track.id === activeTrackId);
+    setActiveTrackId(tracks[(index + 1) % tracks.length].id);
+  };
+
+  const pause = () => {
+    audioRef.current?.pause();
+  };
+
+  const play = async () => {
+    const audio = audioRef.current;
+    if (!audio || !activeTrack) return;
+
+    try {
+      await ensureAudioGraph();
+      await audio.play();
+    } catch (error) {
+      console.error("Playback blocked or unavailable", error);
+      setIsPlaying(false);
+    }
+  };
+
+  useEffect(() => {
+    actionsRef.current = { play, pause, previous, next };
+  }, [activeTrack, isPlaying, mode, tracks]);
+
+  // MediaSession API binding globale
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return;
+
+    if (activeTrack) {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: activeTrack.title || "Unknown title",
+        artist: activeTrack.artist || "Audify",
+        album: activeTrack.kind === "video" ? "Video locale" : "Libreria Audify",
+        artwork: activeTrack.thumbnail
+          ? [
+              { src: activeTrack.thumbnail, sizes: "96x96", type: "image/jpeg" },
+              { src: activeTrack.thumbnail, sizes: "128x128", type: "image/jpeg" },
+              { src: activeTrack.thumbnail, sizes: "192x192", type: "image/jpeg" },
+              { src: activeTrack.thumbnail, sizes: "256x256", type: "image/jpeg" },
+              { src: activeTrack.thumbnail, sizes: "512x512", type: "image/jpeg" },
+            ]
+          : [],
+      });
+    }
+
+    navigator.mediaSession.setActionHandler("play", () => actionsRef.current.play());
+    navigator.mediaSession.setActionHandler("pause", () => actionsRef.current.pause());
+    navigator.mediaSession.setActionHandler("previoustrack", () => actionsRef.current.previous());
+    navigator.mediaSession.setActionHandler("nexttrack", () => actionsRef.current.next());
+
+    if ("setPositionState' in navigator.mediaSession && audioRef.current) {
+      try {
+        navigator.mediaSession.setPositionState({
+          duration: Number.isFinite(duration) ? duration : 0,
+          playbackRate: audioRef.current.playbackRate || 1,
+          position: Number.isFinite(currentTime) ? currentTime : 0,
+        });
+      } catch (e) {
+        // Ignora eventuali disallineamenti di posizionamento non fatali
+      }
+    }
+  }, [activeTrack, duration, currentTime]);
+
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -685,23 +785,6 @@ export default function PlayerShell() {
     setIsPlaying(false);
   }, [activeTrack?.id]);
 
-  const play = async () => {
-    const audio = audioRef.current;
-    if (!audio || !activeTrack) return;
-
-    try {
-      await ensureAudioGraph();
-      await audio.play();
-    } catch (error) {
-      console.error("Playback blocked or unavailable", error);
-      setIsPlaying(false);
-    }
-  };
-
-  const pause = () => {
-    audioRef.current?.pause();
-  };
-
   const selectTrack = (track) => {
     if (!track) return;
 
@@ -730,43 +813,6 @@ export default function PlayerShell() {
       audio.removeEventListener("canplay", onCanPlay);
     };
   }, [activeTrack?.id]);
-
-  const previous = () => {
-    const audio = audioRef.current;
-    if (audio && audio.currentTime > 3) {
-      audio.currentTime = 0;
-      setCurrentTime(0);
-      if (isPlaying) {
-        audio.play().catch(() => {});
-      }
-      return;
-    }
-
-    if (!tracks.length || !activeTrackId) return;
-
-    const index = tracks.findIndex((track) => track.id === activeTrackId);
-    const previousTrack = tracks[(index - 1 + tracks.length) % tracks.length];
-
-    setActiveTrackId(previousTrack.id);
-  };
-
-  const next = () => {
-    if (!tracks.length || !activeTrackId) return;
-
-    if (mode === "shuffle") {
-      const otherTracks = tracks.filter((track) => track.id !== activeTrackId);
-
-      const nextTrack =
-        otherTracks[Math.floor(Math.random() * otherTracks.length)] ||
-        tracks[0];
-
-      setActiveTrackId(nextTrack.id);
-      return;
-    }
-
-    const index = tracks.findIndex((track) => track.id === activeTrackId);
-    setActiveTrackId(tracks[(index + 1) % tracks.length].id);
-  };
 
   const seek = (time) => {
     const safeTime = Number.isFinite(time) ? Math.max(0, time) : 0;
@@ -848,7 +894,7 @@ export default function PlayerShell() {
       const record = {
         id: crypto.randomUUID(),
         title: file.name.replace(/\.[^.]+$/, ""),
-        artist: kind === "video" ? "Local video" : "Local audio",
+        artist: kind === "video" ? "Video locale" : "Audio locale",
         kind,
         file,
         thumbnail,
@@ -1095,20 +1141,20 @@ export default function PlayerShell() {
       <p className="mt-2 truncate text-sm font-semibold">{collection.name}</p>
       <p className="truncate text-xs text-zinc-400">
         {collection.type === "album" ? "Album" : "Playlist"} ·{" "}
-        {collection.trackIds?.length || 0} tracks
+        {collection.trackIds?.length || 0} tracce
       </p>
     </button>
   );
 
   return (
     <main className="min-h-screen bg-[#09090b] pb-44 text-white">
-      <audio ref={audioRef} preload="metadata" />
+      <audio ref={audioRef} preload="metadata" playsInline />
 
       <div className="mx-auto max-w-5xl px-4 pt-4">
         <div className="rounded-[28px] border border-white/10 bg-[#111113] p-4 shadow-[0_18px_60px_rgba(0,0,0,0.38)]">
           {!ready && (
             <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-zinc-400">
-              Loading your local library…
+              Caricamento libreria locale…
             </div>
           )}
 
@@ -1122,14 +1168,14 @@ export default function PlayerShell() {
                 <div>
                   <h1 className="text-lg font-semibold">Audify</h1>
                   <p className="text-sm text-zinc-400">
-                    Your local music library
+                    La tua libreria musicale locale
                   </p>
                 </div>
               </div>
 
               <label className="flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-4 transition active:scale-[0.99]">
                 <Upload size={17} />
-                Import audio or video
+                Importa audio o video
                 <input
                   type="file"
                   multiple
@@ -1141,7 +1187,7 @@ export default function PlayerShell() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="rounded-2xl border border-white/10 bg-[#16161a] p-4">
-                  <p className="text-sm text-zinc-400">Tracks</p>
+                  <p className="text-sm text-zinc-400">Tracce</p>
                   <p className="mt-2 text-2xl font-bold">{tracks.length}</p>
                 </div>
 
@@ -1150,7 +1196,7 @@ export default function PlayerShell() {
                   onClick={() => setSection("favorites")}
                   className="rounded-2xl border border-white/10 bg-[#16161a] p-4 text-left active:scale-[0.98]"
                 >
-                  <p className="text-sm text-zinc-400">Favorites</p>
+                  <p className="text-sm text-zinc-400">Preferiti</p>
                   <p className="mt-2 text-2xl font-bold">
                     {favoriteTracks.length}
                   </p>
@@ -1160,23 +1206,23 @@ export default function PlayerShell() {
               <div className="rounded-2xl border border-white/10 bg-[#16161a] p-4">
                 <div className="mb-3 flex items-center gap-2 text-sm text-zinc-400">
                   <Search size={16} />
-                  Search library
+                  Cerca nella libreria
                 </div>
 
                 <input
                   value={searchText}
                   onChange={(event) => setSearchText(event.target.value)}
-                  placeholder="Search tracks or artists"
+                  placeholder="Cerca tracce o artisti"
                   className="w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-white outline-none placeholder:text-zinc-600"
                 />
               </div>
 
               <div className="flex gap-2 overflow-x-auto pb-1">
                 {[
-                  ["tracks", "Tracks", Music2],
-                  ["albums", "Albums", Album],
-                  ["playlists", "Playlists", ListMusic],
-                  ["artists", "Artists", UserRound],
+                  ["tracks", "Tracce", Music2],
+                  ["albums", "Album", Album],
+                  ["playlists", "Playlist", ListMusic],
+                  ["artists", "Artisti", UserRound],
                 ].map(([value, label, Icon]) => (
                   <button
                     key={value}
@@ -1197,7 +1243,7 @@ export default function PlayerShell() {
               {libraryView === "tracks" && (
                 <div className="space-y-3">
                   {filteredTracks.length === 0 ? (
-                    <EmptyState>Import an MP3 or MP4 to start.</EmptyState>
+                    <EmptyState>Importa un MP3 o MP4 per iniziare.</EmptyState>
                   ) : (
                     filteredTracks.map((track) => (
                       <TrackRow
@@ -1224,11 +1270,11 @@ export default function PlayerShell() {
                     className="flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-[#7db6ff]/40 bg-[#7db6ff]/5 px-4 py-4 text-sm font-medium text-[#b9d7fb] active:scale-[0.99]"
                   >
                     <Plus size={17} />
-                    Create album
+                    Crea album
                   </button>
 
                   {albumCollections.length === 0 ? (
-                    <EmptyState>No albums yet.</EmptyState>
+                    <EmptyState>Nessun album.</EmptyState>
                   ) : (
                     <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
                       {albumCollections.map((collection) => (
@@ -1253,11 +1299,11 @@ export default function PlayerShell() {
                     className="flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-[#b99aff]/40 bg-[#8d68ef]/5 px-4 py-4 text-sm font-medium text-[#d9ccff] active:scale-[0.99]"
                   >
                     <Plus size={17} />
-                    Create playlist
+                    Crea playlist
                   </button>
 
                   {playlistCollections.length === 0 ? (
-                    <EmptyState>No playlists yet.</EmptyState>
+                    <EmptyState>Nessuna playlist.</EmptyState>
                   ) : (
                     <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
                       {playlistCollections.map((collection) => (
@@ -1274,7 +1320,7 @@ export default function PlayerShell() {
               {libraryView === "artists" && (
                 <div className="space-y-3">
                   {artists.length === 0 ? (
-                    <EmptyState>Artists appear after you import tracks.</EmptyState>
+                    <EmptyState>Gli artisti appariranno dopo l'importazione.</EmptyState>
                   ) : (
                     artists.map((artist) => (
                       <div
@@ -1287,7 +1333,7 @@ export default function PlayerShell() {
                         <div>
                           <p className="font-medium">{artist.name}</p>
                           <p className="text-sm text-zinc-400">
-                            {artist.total} {artist.total === 1 ? "track" : "tracks"}
+                            {artist.total} {artist.total === 1 ? "traccia" : "tracce"}
                           </p>
                         </div>
                       </div>
@@ -1306,7 +1352,7 @@ export default function PlayerShell() {
                 className="flex items-center gap-2 rounded-full bg-white/5 px-4 py-2 text-sm text-zinc-300 active:scale-95"
               >
                 <ChevronLeft size={17} />
-                Library
+                Libreria
               </button>
 
               <div className="overflow-hidden rounded-[28px] border border-white/10 bg-[#16161a]">
@@ -1327,17 +1373,17 @@ export default function PlayerShell() {
                   </h1>
                   <p className="mt-1 text-sm text-zinc-400">
                     {collectionTracks.length}{" "}
-                    {collectionTracks.length === 1 ? "track" : "tracks"}
+                    {collectionTracks.length === 1 ? "traccia" : "tracce"}
                   </p>
                 </div>
               </div>
 
               <div className="rounded-2xl border border-white/10 bg-[#16161a] p-4">
-                <p className="mb-3 text-sm font-medium">Add tracks</p>
+                <p className="mb-3 text-sm font-medium">Aggiungi tracce</p>
 
                 {tracks.length === 0 ? (
                   <p className="text-sm text-zinc-500">
-                    Import tracks before adding them here.
+                    Importa tracce prima di aggiungerle qui.
                   </p>
                 ) : (
                   <div className="max-h-52 space-y-2 overflow-y-auto pr-1">
@@ -1360,7 +1406,7 @@ export default function PlayerShell() {
                         >
                           <span className="truncate">{track.title}</span>
                           <span className="ml-3 shrink-0 text-xs">
-                            {exists ? "Added" : "Add"}
+                            {exists ? "Aggiunta" : "Aggiungi"}
                           </span>
                         </button>
                       );
@@ -1371,7 +1417,7 @@ export default function PlayerShell() {
 
               <div className="space-y-3">
                 {collectionTracks.length === 0 ? (
-                  <EmptyState>No tracks in this collection yet.</EmptyState>
+                  <EmptyState>Nessuna traccia in questa collezione.</EmptyState>
                 ) : (
                   collectionTracks.map((track) => (
                     <TrackRow
@@ -1386,7 +1432,7 @@ export default function PlayerShell() {
                           type="button"
                           onClick={() => removeTrackFromCollection(track.id)}
                           className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-white/5 text-zinc-300 active:scale-95"
-                          aria-label="Remove from collection"
+                          aria-label="Rimuovi dalla collezione"
                         >
                           <X size={17} />
                         </button>
@@ -1402,7 +1448,7 @@ export default function PlayerShell() {
                 className="flex w-full items-center justify-center gap-2 rounded-2xl border border-red-300/15 bg-red-300/[0.06] px-4 py-4 text-sm font-medium text-red-200 active:scale-[0.99]"
               >
                 <Trash2 size={17} />
-                Move {selectedCollection.type} to trash
+                Sposta {selectedCollection.type} nel cestino
               </button>
             </section>
           )}
@@ -1415,9 +1461,9 @@ export default function PlayerShell() {
                 </div>
 
                 <div>
-                  <h1 className="text-lg font-semibold">Favorites</h1>
+                  <h1 className="text-lg font-semibold">Preferiti</h1>
                   <p className="text-sm text-zinc-400">
-                    Your liked tracks
+                    I tuoi brani preferiti
                   </p>
                 </div>
               </div>
@@ -1425,7 +1471,7 @@ export default function PlayerShell() {
               <div className="space-y-3">
                 {favoriteTracks.length === 0 ? (
                   <EmptyState>
-                    Tap the heart on a track to add it here.
+                    Tocca il cuore su una traccia per aggiungerla qui.
                   </EmptyState>
                 ) : (
                   favoriteTracks.map((track) => (
@@ -1451,16 +1497,16 @@ export default function PlayerShell() {
                 </div>
 
                 <div>
-                  <h1 className="text-lg font-semibold">Files</h1>
+                  <h1 className="text-lg font-semibold">File</h1>
                   <p className="text-sm text-zinc-400">
-                    Manage imported media
+                    Gestisci i file multimediali importati
                   </p>
                 </div>
               </div>
 
               <div className="space-y-3">
                 {tracks.length === 0 ? (
-                  <EmptyState>No local files yet.</EmptyState>
+                  <EmptyState>Nessun file locale.</EmptyState>
                 ) : (
                   tracks.map((track) => (
                     <TrackRow
@@ -1475,7 +1521,7 @@ export default function PlayerShell() {
                           type="button"
                           onClick={() => moveToTrash(track)}
                           className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-white/5 active:scale-95"
-                          aria-label="Move file to trash"
+                          aria-label="Sposta nel cestino"
                         >
                           <Trash2 size={17} />
                         </button>
@@ -1495,9 +1541,9 @@ export default function PlayerShell() {
                 </div>
 
                 <div>
-                  <h1 className="text-lg font-semibold">Settings</h1>
+                  <h1 className="text-lg font-semibold">Impostazioni</h1>
                   <p className="text-sm text-zinc-400">
-                    Equalizer and trash
+                    Equalizzatore e cestino
                   </p>
                 </div>
               </div>
@@ -1506,10 +1552,10 @@ export default function PlayerShell() {
                 <div className="mb-5 flex items-center justify-between">
                   <div>
                     <p className="text-lg font-semibold text-white">
-                      Graphic Equalizer
+                      Equalizzatore grafico
                     </p>
                     <p className="mt-1 text-xs text-zinc-400">
-                      Drag each band up or down
+                      Regola ogni banda di frequenza
                     </p>
                   </div>
 
@@ -1626,9 +1672,9 @@ export default function PlayerShell() {
               <div className="rounded-2xl border border-white/10 bg-[#16161a] p-4">
                 <div className="mb-3 flex items-center justify-between">
                   <div>
-                    <p className="font-medium">Files trash</p>
+                    <p className="font-medium">Cestino file</p>
                     <p className="mt-1 text-sm text-zinc-400">
-                      Deleted files can be restored for 10 days.
+                      I file eliminati sono recuperabili per 10 giorni.
                     </p>
                   </div>
 
@@ -1639,7 +1685,7 @@ export default function PlayerShell() {
 
                 <div className="space-y-3">
                   {deletedTracks.length === 0 && (
-                    <p className="text-sm text-zinc-500">Trash is empty.</p>
+                    <p className="text-sm text-zinc-500">Il cestino è vuoto.</p>
                   )}
 
                   {deletedTracks.map((track) => {
@@ -1655,8 +1701,8 @@ export default function PlayerShell() {
 
                         <p className="mt-1 text-xs text-zinc-400">
                           {expired
-                            ? "Recovery period expired"
-                            : `Deleted ${formatDate(track.deletedAt)}`}
+                            ? "Periodo di recupero scaduto"
+                            : `Eliminato il ${formatDate(track.deletedAt)}`}
                         </p>
 
                         <div className="mt-3 flex gap-2">
@@ -1670,7 +1716,7 @@ export default function PlayerShell() {
                                 : "bg-white/10 text-white active:scale-95"
                             }`}
                           >
-                            Restore
+                            Ripristina
                           </button>
 
                           <button
@@ -1678,78 +1724,7 @@ export default function PlayerShell() {
                             onClick={() => permanentlyDeleteTrack(track)}
                             className="rounded-full bg-white/5 px-4 py-2 text-sm text-zinc-300 active:scale-95"
                           >
-                            Delete forever
-                          </button>
-                        </div>
-                      </article>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-white/10 bg-[#16161a] p-4">
-                <div className="mb-3 flex items-center justify-between">
-                  <div>
-                    <p className="font-medium">Albums & playlists trash</p>
-                    <p className="mt-1 text-sm text-zinc-400">
-                      Deleted collections can be restored for 10 days.
-                    </p>
-                  </div>
-
-                  <span className="text-sm text-zinc-400">
-                    {recoverableDeletedCollections.length}
-                  </span>
-                </div>
-
-                <div className="space-y-3">
-                  {deletedCollections.length === 0 && (
-                    <p className="text-sm text-zinc-500">
-                      No deleted albums or playlists.
-                    </p>
-                  )}
-
-                  {deletedCollections.map((collection) => {
-                    const expired =
-                      Date.now() - collection.deletedAt > TEN_DAYS_MS;
-
-                    return (
-                      <article
-                        key={collection.id}
-                        className="rounded-2xl border border-white/10 bg-black/20 p-3"
-                      >
-                        <p className="truncate font-medium">
-                          {collection.name}
-                        </p>
-
-                        <p className="mt-1 text-xs text-zinc-400">
-                          {collection.type} ·{" "}
-                          {expired
-                            ? "Recovery period expired"
-                            : `Deleted ${formatDate(collection.deletedAt)}`}
-                        </p>
-
-                        <div className="mt-3 flex gap-2">
-                          <button
-                            type="button"
-                            disabled={expired}
-                            onClick={() => restoreCollection(collection)}
-                            className={`rounded-full px-4 py-2 text-sm ${
-                              expired
-                                ? "cursor-not-allowed bg-white/5 text-zinc-600"
-                                : "bg-white/10 text-white active:scale-95"
-                            }`}
-                          >
-                            Restore
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() =>
-                              permanentlyDeleteCollection(collection)
-                            }
-                            className="rounded-full bg-white/5 px-4 py-2 text-sm text-zinc-300 active:scale-95"
-                          >
-                            Delete forever
+                            Elimina per sempre
                           </button>
                         </div>
                       </article>
@@ -1800,10 +1775,10 @@ export default function PlayerShell() {
                   id="collection-modal-title"
                   className="text-lg font-semibold"
                 >
-                  Create {collectionModal}
+                  Crea {collectionModal}
                 </p>
                 <p className="mt-1 text-sm text-zinc-400">
-                  Your collection remains on this device.
+                  La collezione resta salvata su questo dispositivo.
                 </p>
               </div>
 
@@ -1811,7 +1786,7 @@ export default function PlayerShell() {
                 type="button"
                 onClick={() => setCollectionModal(null)}
                 className="grid h-10 w-10 place-items-center rounded-full bg-white/5"
-                aria-label="Close"
+                aria-label="Chiudi"
               >
                 <X size={18} />
               </button>
@@ -1823,8 +1798,8 @@ export default function PlayerShell() {
               onChange={(event) => setCollectionName(event.target.value)}
               placeholder={
                 collectionModal === "album"
-                  ? "Album name"
-                  : "Playlist name"
+                  ? "Nome album"
+                  : "Nome playlist"
               }
               className="mt-5 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none placeholder:text-zinc-600"
             />
@@ -1835,7 +1810,7 @@ export default function PlayerShell() {
                 onClick={() => setCollectionModal(null)}
                 className="flex-1 rounded-xl bg-white/5 px-4 py-3 text-sm font-medium text-zinc-300"
               >
-                Cancel
+                Annulla
               </button>
 
               <button
@@ -1843,7 +1818,7 @@ export default function PlayerShell() {
                 disabled={!collectionName.trim()}
                 className="flex-1 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-black disabled:cursor-not-allowed disabled:opacity-40"
               >
-                Create
+                Crea
               </button>
             </div>
           </form>
@@ -1864,11 +1839,10 @@ export default function PlayerShell() {
                   id="duplicates-modal-title"
                   className="text-lg font-semibold"
                 >
-                  Duplicate tracks skipped
+                  Tracce duplicate ignorate
                 </p>
                 <p className="mt-1 text-sm text-zinc-400">
-                  These files are already present in your library and were not
-                  imported.
+                  Questi file sono già presenti nella libreria.
                 </p>
               </div>
 
@@ -1876,7 +1850,7 @@ export default function PlayerShell() {
                 type="button"
                 onClick={() => setDuplicateNames([])}
                 className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white/5"
-                aria-label="Close duplicate dialog"
+                aria-label="Chiudi"
               >
                 <X size={18} />
               </button>
@@ -1898,7 +1872,7 @@ export default function PlayerShell() {
               onClick={() => setDuplicateNames([])}
               className="mt-5 w-full rounded-xl bg-white px-4 py-3 text-sm font-semibold text-black active:scale-[0.99]"
             >
-              Got it
+              Capito
             </button>
           </div>
         </div>
@@ -1932,7 +1906,7 @@ export default function PlayerShell() {
             }`}
           >
             <Heart size={18} />
-            Favorites
+            Preferiti
           </button>
 
           <button
@@ -1945,7 +1919,7 @@ export default function PlayerShell() {
             }`}
           >
             <Folder size={18} />
-            Files
+            File
           </button>
 
           <button
@@ -1958,7 +1932,7 @@ export default function PlayerShell() {
             }`}
           >
             <Settings size={18} />
-            Settings
+            Impostazioni
           </button>
         </div>
       </nav>
