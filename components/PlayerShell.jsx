@@ -146,10 +146,13 @@ async function extractCoverBlob(file) {
   return null;
 }
 
+// Reidrata il file nativo salvato in IndexedDB in URL blob persistente per la sessione
 function createTrackFromRecord(record) {
+  const blobSource = record.fileBlob || record.file;
   return {
     ...record,
-    url: record.file ? URL.createObjectURL(record.file) : "",
+    fileBlob: blobSource,
+    url: blobSource instanceof Blob ? URL.createObjectURL(blobSource) : (record.url || ""),
   };
 }
 
@@ -188,13 +191,14 @@ function naturalSortCompare(a, b) {
 }
 
 function isSameFile(file, track) {
-  if (!track?.file) return false;
+  const targetFile = track?.fileBlob || track?.file;
+  if (!targetFile) return false;
 
   return (
-    normalizeText(file.name) === normalizeText(track.file.name) &&
-    file.size === track.file.size &&
-    file.type === track.file.type &&
-    file.lastModified === track.file.lastModified
+    normalizeText(file.name) === normalizeText(targetFile.name) &&
+    file.size === targetFile.size &&
+    file.type === targetFile.type &&
+    file.lastModified === targetFile.lastModified
   );
 }
 
@@ -513,9 +517,12 @@ export default function PlayerShell() {
           return;
         }
 
-        setTracks(
-          availableTracks.sort(naturalSortCompare)
-        );
+        const sortedAvailable = availableTracks.sort(naturalSortCompare);
+        setTracks(sortedAvailable);
+
+        if (sortedAvailable.length > 0 && !activeTrackIdRef.current) {
+          setActiveTrackId(sortedAvailable[0].id);
+        }
 
         setDeletedTracks(
           trashedTracks.sort((first, second) => second.deletedAt - first.deletedAt)
@@ -545,6 +552,7 @@ export default function PlayerShell() {
 
     return () => {
       alive = false;
+      tracksRef.current.forEach(releaseTrackUrl);
 
       if (audioContextRef.current) {
         audioContextRef.current.close().catch(() => {});
@@ -664,6 +672,7 @@ export default function PlayerShell() {
     try {
       await ensureAudioGraph();
       await audio.play();
+      setIsPlaying(true);
     } catch (error) {
       console.error("Playback blocked or unavailable", error);
       setIsPlaying(false);
@@ -805,7 +814,6 @@ export default function PlayerShell() {
 
     setCurrentTime(0);
     setDuration(0);
-    setIsPlaying(false);
   }, [activeTrack?.id]);
 
   const selectTrack = (track) => {
@@ -816,7 +824,11 @@ export default function PlayerShell() {
       return;
     }
 
-    play();
+    if (isPlaying) {
+      pause();
+    } else {
+      play();
+    }
   };
 
   useEffect(() => {
@@ -911,7 +923,6 @@ export default function PlayerShell() {
         }
       }
 
-      // Estrai eventuale percorso di cartella per mostrare il sub-path o folder reference
       const relPath = file.webkitRelativePath || "";
       const pathParts = relPath.split("/");
       const folderName = pathParts.length > 1 ? pathParts[0] : "";
@@ -922,7 +933,8 @@ export default function PlayerShell() {
         artist: folderName ? `${folderName}` : kind === "video" ? "Video locale" : "Audio locale",
         folder: folderName,
         kind,
-        file,
+        file: file,
+        fileBlob: file, // <-- Persistito nativamente per sopravvivere alla chiusura app
         thumbnail,
         createdAt: Date.now(),
         deletedAt: null,
@@ -934,7 +946,7 @@ export default function PlayerShell() {
       importedTracks.push(track);
     }
 
-    return { importedTracks, folderGroup: importedTracks.length > 0 && importedTracks[0].folder ? importedTracks[0].folder : null };
+    return { importedTracks };
   };
 
   const importFiles = async (event) => {
@@ -943,23 +955,32 @@ export default function PlayerShell() {
     const { importedTracks } = await processAndImportFiles(files);
 
     if (importedTracks.length) {
-      setTracks((existing) => [...importedTracks, ...existing].sort(naturalSortCompare));
+      setTracks((existing) => {
+        const updated = [...importedTracks, ...existing].sort(naturalSortCompare);
+        if (!activeTrackId && updated.length > 0) {
+          setActiveTrackId(updated[0].id);
+        }
+        return updated;
+      });
     }
   };
 
-  // Importa intera cartella e crea automaticamente una playlist o album basata sulla cartella
   const importFolder = async (event) => {
     const files = Array.from(event.target.files || []);
     event.target.value = "";
     const { importedTracks } = await processAndImportFiles(files);
 
     if (importedTracks.length) {
-      // Ordina numericamente/alfabeticamente le tracce importate dalla cartella
       const sortedImported = [...importedTracks].sort(naturalSortCompare);
 
-      setTracks((existing) => [...sortedImported, ...existing].sort(naturalSortCompare));
+      setTracks((existing) => {
+        const updated = [...sortedImported, ...existing].sort(naturalSortCompare);
+        if (!activeTrackId && updated.length > 0) {
+          setActiveTrackId(updated[0].id);
+        }
+        return updated;
+      });
 
-      // Se c'è un nome di cartella principale, crea una playlist con lo stesso nome
       const rootFolder = sortedImported[0]?.folder;
       if (rootFolder) {
         const collection = {
@@ -988,6 +1009,7 @@ export default function PlayerShell() {
       artist: track.artist,
       kind: track.kind,
       file: track.file,
+      fileBlob: track.fileBlob,
       thumbnail: track.thumbnail || null,
       createdAt: track.createdAt,
       deletedAt: Date.now(),
@@ -1037,6 +1059,7 @@ export default function PlayerShell() {
       artist: track.artist,
       kind: track.kind,
       file: track.file,
+      fileBlob: track.fileBlob,
       thumbnail: track.thumbnail || null,
       createdAt: track.createdAt,
       deletedAt: null,
@@ -1239,7 +1262,6 @@ export default function PlayerShell() {
                 </div>
               </div>
 
-              {/* Pulsanti di importazione file e cartella */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <label className="flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-4 transition active:scale-[0.99]">
                   <Upload size={17} />
