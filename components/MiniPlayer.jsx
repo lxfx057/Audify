@@ -41,6 +41,7 @@ export default function MiniPlayer({
 
   const dragStartYRef = useRef(null);
   const isDraggingRef = useRef(false);
+  const dragDeltaYRef = useRef(0);
 
   if (!track) return null;
 
@@ -70,6 +71,7 @@ export default function MiniPlayer({
     const currentY = e.touches[0].clientY;
     const delta = currentY - dragStartYRef.current;
     if (delta > 0) {
+      dragDeltaYRef.current = delta;
       setDragDeltaY(delta);
     }
   };
@@ -79,9 +81,10 @@ export default function MiniPlayer({
     isDraggingRef.current = false;
     dragStartYRef.current = null;
 
-    if (dragDeltaY > 110) {
+    if (dragDeltaYRef.current > 110) {
       setExpanded(false);
     }
+    dragDeltaYRef.current = 0;
     setDragDeltaY(0);
   };
 
