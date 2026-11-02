@@ -219,7 +219,7 @@ function makeCollectionCover(type, name) {
       <defs>
         <linearGradient id="cover" x1="0" y1="0" x2="1" y2="1">
           <stop offset="0%" stop-color="${palette[0]}"/>
-          <stop offset="55%" stop-color="${palette || palette[0]}"/>
+          <stop offset="55%" stop-color="${palette[1]}"/>
           <stop offset="100%" stop-color="${palette[0]}"/>
         </linearGradient>
       </defs>
