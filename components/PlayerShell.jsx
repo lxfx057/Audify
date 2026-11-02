@@ -736,6 +736,69 @@ export default function PlayerShell() {
   }, [activeTrack, isPlaying, mode, tracks]);
 
   useEffect(() => {
+    if (!("mediaSession" in navigator)) return;
+    const session = navigator.mediaSession;
+    if (activeTrack && "MediaMetadata" in window) {
+      const artwork = activeTrack.thumbnail
+        ? [{ src: activeTrack.thumbnail, sizes: "512x512" }]
+        : [];
+      session.metadata = new window.MediaMetadata({
+        title: activeTrack.title || "Unknown title",
+        artist: activeTrack.artist || "Unknown artist",
+        album: activeTrack.album || "Audify",
+        artwork,
+      });
+    } else {
+      session.metadata = null;
+    }
+
+    const handlers = {
+      play: () => actionsRef.current.play?.(),
+      pause: () => actionsRef.current.pause?.(),
+      previoustrack: () => actionsRef.current.previous?.(),
+      nexttrack: () => actionsRef.current.next?.(),
+      seekto: (details) => {
+        if (audioRef.current && Number.isFinite(details.seekTime)) {
+          audioRef.current.currentTime = details.seekTime;
+        }
+      },
+      seekbackward: (details) => {
+        if (audioRef.current) audioRef.current.currentTime = Math.max(0, audioRef.current.currentTime - (details.seekOffset || 10));
+      },
+      seekforward: (details) => {
+        if (audioRef.current) audioRef.current.currentTime = Math.min(duration || Infinity, audioRef.current.currentTime + (details.seekOffset || 10));
+      },
+    };
+
+    for (const [action, handler] of Object.entries(handlers)) {
+      try { session.setActionHandler(action, handler); } catch {}
+    }
+
+    return () => {
+      for (const action of Object.keys(handlers)) {
+        try { session.setActionHandler(action, null); } catch {}
+      }
+      session.metadata = null;
+    };
+  }, [activeTrack, duration]);
+
+  useEffect(() => {
+    if (!("mediaSession" in navigator)) return;
+    navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
+    if (duration > 0 && Number.isFinite(currentTime)) {
+      try {
+        navigator.mediaSession.setPositionState({
+          duration,
+          playbackRate: audioRef.current?.playbackRate || 1,
+          position: Math.min(currentTime, duration),
+        });
+      } catch {}
+    }
+  }, [isPlaying, currentTime, duration]);
+
+
+
+  useEffect(() => {
     const handleVisibilityChange = async () => {
       if (document.hidden) {
         disconnectCustomChainForBackground();
