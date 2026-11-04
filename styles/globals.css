@@ -89,3 +89,33 @@ input[type="range"] {
     width: 34px;
   }
 }
+
+
+/* Interaction polish: subtle motion, visible focus and reduced-motion support */
+:where(button,a,input,select,textarea,[role="button"]) {
+  transition-property: color,background-color,border-color,box-shadow,opacity,transform,filter;
+  transition-duration: 180ms;
+  transition-timing-function: cubic-bezier(.2,.75,.25,1);
+}
+:where(button:not(:disabled),[role="button"]):hover { filter: brightness(1.06); }
+:where(button:not(:disabled),[role="button"]):active { transform: scale(.985); }
+:where(a) { text-underline-offset: .2em; }
+:where(button,input,select,textarea,a,[role="button"]):focus-visible {
+  outline: 2px solid var(--focus-ring, #70b7ff);
+  outline-offset: 3px;
+}
+@keyframes ui-enter {
+  from { opacity: 0; transform: translateY(9px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+:where(.card,.panel,.setting-card,.entry,.rom-card,.template-card,.glass-panel,.welcome-panel) {
+  animation: ui-enter 360ms both;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,*::before,*::after {
+    scroll-behavior: auto !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
