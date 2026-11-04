@@ -179,7 +179,7 @@ button:disabled { opacity: .62; }
 }
 .toolbar,.topbar,.bottom-bar { background-color: #0d162a; }
 button.primary,.primary-button,.button-primary,.btn-primary,
-button[type="submit"],input[type="submit] {
+button[type="submit"],input[type="submit"] {
   background: linear-gradient(115deg,#286bd6,#7046c8);
   border-color: #8c9fff;
   color: #fff;
