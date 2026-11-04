@@ -119,3 +119,69 @@ input[type="range"] {
     transition-duration: .01ms !important;
   }
 }
+
+
+/* Night readability theme — midnight blue + violet */
+:root {
+  color-scheme: dark;
+  --night-bg: #080d1b;
+  --night-surface: #111a30;
+  --night-surface-raised: #182440;
+  --night-border: #35476d;
+  --night-text: #f4f6ff;
+  --night-muted: #c1cbe0;
+  --night-blue: #79aaff;
+  --night-violet: #b49aff;
+  --focus-ring: #a98bff;
+}
+html { color-scheme: dark; background-color: var(--night-bg); }
+body {
+  background-color: var(--night-bg);
+  color: var(--night-text);
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+h1,h2,h3,h4,h5,h6,strong,b,legend { color: var(--night-text); }
+p,li,label,small,summary,figcaption,dt,dd,
+.description,.muted,.subtitle,.helper-text,.field-hint,.empty-state {
+  color: var(--night-muted);
+}
+a { color: var(--night-blue); }
+a:hover { color: #c2b0ff; }
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+select,textarea {
+  color: var(--night-text);
+  background-color: #0d162a;
+  border-color: #465a83;
+}
+input::placeholder,textarea::placeholder { color: #aab7d0; opacity: 1; }
+input:focus,select:focus,textarea:focus {
+  border-color: var(--night-violet);
+  box-shadow: 0 0 0 3px rgba(180,154,255,.2);
+}
+button:not(:disabled),[role="button"] { color: #edf1ff; }
+button:focus-visible,a:focus-visible,input:focus-visible,
+select:focus-visible,textarea:focus-visible,[role="button"]:focus-visible {
+  outline: 2px solid var(--night-violet);
+  outline-offset: 3px;
+}
+button:disabled { opacity: .62; }
+.panel,.card,.modal,.dialog,.workspace,.toolbar,.editor-panel,.diagnostics,
+.setting-card,.strength-card,.password-output-box,.entry,.template-card,
+.inspector,.left-panel,.right-panel,.sidebar,.topbar,.bottom-bar,
+.welcome-panel,.toast,.glass-panel,.rom-card,.welcome-backdrop {
+  border-color: var(--night-border);
+}
+.panel,.card,.modal,.dialog,.workspace,.editor-panel,.diagnostics,
+.setting-card,.strength-card,.entry,.template-card,.inspector,
+.left-panel,.right-panel,.sidebar,.welcome-panel,.glass-panel,.rom-card {
+  background-color: var(--night-surface);
+}
+.toolbar,.topbar,.bottom-bar { background-color: #0d162a; }
+button.primary,.primary-button,.button-primary,.btn-primary,
+button[type="submit"],input[type="submit] {
+  background: linear-gradient(115deg,#286bd6,#7046c8);
+  border-color: #8c9fff;
+  color: #fff;
+}
+::selection { background: rgba(126,151,255,.38); color: #fff; }
